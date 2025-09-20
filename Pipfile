@@ -14,6 +14,8 @@ flask-bcrypt = "*"
 python-dotenv = "*"
 gunicorn = "*"
 psycopg2-binary = "*"
+honcho = "*"
+openai = "*"
 
 [dev-packages]
 
