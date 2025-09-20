@@ -1,12 +1,15 @@
-// path: src/components/ChatBot.jsx
+// client/src/components/ChatBot.jsx
 
 import { useEffect, useRef, useState } from 'react'
 import '../ChatBot.css'
 
-// Read backend base URL from Vite env (Render Static Site env var).
-// Falls back to your local dev API on port 5555.
-const API_BASE =
-  import.meta.env.VITE_API_BASE_URL?.replace(/\/+$/, '') || 'http://localhost:5555'
+// 👇 Robust API base resolution:
+// - DEV: use VITE_API_BASE_URL or default to http://localhost:5555
+// - PROD: use VITE_API_BASE_URL only if it's NOT localhost; otherwise same-origin ('')
+const rawEnvBase = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')  // trim trailing slashes
+const isDev = import.meta.env.DEV
+const isLocalhost = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(rawEnvBase)
+const API_BASE = isDev ? (rawEnvBase || 'http://localhost:5555') : (rawEnvBase && !isLocalhost ? rawEnvBase : '')  // <-- changed
 
 function ChatBot() {
   const [input, setInput] = useState('')
@@ -48,8 +51,7 @@ function ChatBot() {
     setIsTyping(true)
 
     try {
-      const res = await fetch(`${API_BASE}/api/chat`, {
-        // ✅ Use env-based API URL for Render; works locally via fallback
+      const res = await fetch(`${API_BASE}/api/chat`, { // prod → same-origin; dev → localhost:5555
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: trimmed, model }),
@@ -57,7 +59,6 @@ function ChatBot() {
 
       const data = await res.json()
 
-      // Show either the model's reply or a readable error if provided
       const botContent =
         typeof data?.reply === 'string'
           ? data.reply
