@@ -39,10 +39,14 @@ def init_rate_limiter(app) -> Limiter:
         }
         return jsonify(payload), 429
 
-    # Apply a stricter limit to the chat endpoint if present
+    # Apply a stricter limit to the chat endpoints if present
     chat_view = app.view_functions.get("chat")
     if chat_view is not None:
         limiter.limit("15/minute")(chat_view)  # CHANGED: from 60/minute → 15/minute
+
+    chat_stream_view = app.view_functions.get("chat_stream")  # <-- ADDED: limit SSE route
+    if chat_stream_view is not None:
+        limiter.limit("15/minute")(chat_stream_view)  # <-- ADDED: same per-IP limit
 
     app.extensions["limiter"] = limiter
     app.config["_RATE_LIMITER_INIT"] = True

@@ -17,6 +17,8 @@ from flask import (
     render_template,  # SPA fallback
     current_app,      # proper logger access
     g,                # attach request_id and timing
+    Response,         # <-- ADDED: for streaming responses
+    stream_with_context,  # <-- ADDED: keep Flask ctx during generator
 )
 from dotenv import load_dotenv
 
@@ -120,6 +122,105 @@ def chat():
             },
         )
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/chat/stream', methods=['POST'])
+def chat_stream():
+    """
+    Stream assistant tokens via Server-Sent Events (SSE).
+    Keeps existing /api/chat unchanged for graceful fallback.
+    """
+    data = request.get_json(silent=True)
+    if not data or "message" not in data:
+        return jsonify({"error": "Missing JSON body or 'message' field"}), 400  # validation
+
+    user_message = (data.get('message') or '').strip()
+    model = data.get('model', 'gpt-3.5-turbo')
+
+    # Same guardrail as non-stream route
+    if len(user_message) > 4000:
+        return jsonify({"error": "Message too large"}), 413
+
+    # Log stream start for correlation
+    current_app.logger.info(
+        "openai.chat.stream.start",
+        extra={
+            "event": "openai.chat.stream.start",  # <-- ADDED: start log
+            "request_id": getattr(g, "request_id", None),
+            "model": model,
+        },
+    )
+
+    @stream_with_context  # <-- ADDED: ensure g.request_id etc. remain available
+    def generate():
+        import json
+        try:
+            # Start the OpenAI streaming request
+            stream = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant."},
+                    {"role": "user", "content": user_message},
+                ],
+                stream=True,  # <-- ADDED: enable streaming
+            )
+
+            # Emit an initial event with the request_id for client correlation (optional)
+            init_payload = {"request_id": getattr(g, "request_id", None)}
+            yield f"data: {json.dumps(init_payload)}\n\n"  # <-- ADDED: initial SSE message
+
+            # Iterate chunks and push deltas as tokens
+            for chunk in stream:
+                try:
+                    # The SDK yields ChatCompletionChunk objects; extract the delta content if present
+                    delta = chunk.choices[0].delta
+                    token = getattr(delta, "content", None)
+                    if token:
+                        payload = {"token": token}
+                        yield f"data: {json.dumps(payload)}\n\n"  # <-- ADDED: per-token SSE
+                except Exception:
+                    # If the shape changes, best-effort emit raw chunk
+                    payload = {"token": str(chunk)}
+                    yield f"data: {json.dumps(payload)}\n\n"
+
+            # Final event to signal completion
+            done_payload = {"done": True}
+            yield f"data: {json.dumps(done_payload)}\n\n"  # <-- ADDED: done marker
+
+            # Log completion (usage may not be available on streamed chunks)
+            current_app.logger.info(
+                "openai.chat.stream.complete",
+                extra={
+                    "event": "openai.chat.stream.complete",  # <-- ADDED: end log
+                    "request_id": getattr(g, "request_id", None),
+                    "model": model,
+                    # Tokens unknown in most streamed cases; leave None to avoid wrong data.
+                    "prompt_tokens": None,
+                    "completion_tokens": None,
+                    "total_tokens": None,
+                },
+            )
+        except Exception as e:
+            # Log and surface a terminal SSE error event (response is already streaming)
+            current_app.logger.error(
+                "openai.chat.stream.error",
+                exc_info=True,
+                extra={
+                    "event": "openai.chat.stream.error",  # <-- ADDED: error log
+                    "request_id": getattr(g, "request_id", None),
+                    "model": model,
+                },
+            )
+            err_payload = {"error": str(e), "done": True}
+            yield f"data: {json.dumps(err_payload)}\n\n"
+
+    # Stream-friendly headers (avoid proxy buffering)
+    headers = {
+        "Cache-Control": "no-cache",          # <-- ADDED: prevent caching
+        "X-Accel-Buffering": "no",            # <-- ADDED: disable buffering on some proxies
+        "Connection": "keep-alive",           # <-- ADDED: keep connection open
+    }
+    return Response(generate(), mimetype="text/event-stream", headers=headers)  # <-- ADDED: SSE Response
 # -------------------------------------------------------------------------
 
 # ---------------------- SPA FALLBACK FOR ROUTING -------------------------

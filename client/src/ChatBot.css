@@ -11,6 +11,7 @@
   .chat-controls {
     display: flex;
     gap: 0.5rem;
+    align-items: center; /* <-- ADDED: align toggle with controls */
   }
   
   .chat-controls select,
@@ -27,6 +28,15 @@
   .chat-controls select:hover {
     background: #334155;
   }
+
+  .stream-toggle {                 /* <-- ADDED: simple label for the toggle */
+    display: inline-flex;
+    gap: 0.35rem;
+    align-items: center;
+    font-size: 0.9rem;
+    color: #e2e8f0;
+    user-select: none;
+  }
   
   .message-content {
     margin-bottom: 0.25rem;
@@ -38,4 +48,3 @@
     text-align: right;
     margin-top: 2px;
   }
-  
