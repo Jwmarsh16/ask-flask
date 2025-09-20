@@ -16,6 +16,8 @@ gunicorn = "*"
 psycopg2-binary = "*"
 honcho = "*"
 openai = "*"
+flask-limiter = "*"
+python-json-logger = "*"
 
 [dev-packages]
 

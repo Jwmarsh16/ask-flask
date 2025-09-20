@@ -12,6 +12,7 @@ exceptiongroup==1.3.0
 Flask==3.1.2
 Flask-Bcrypt==1.0.1
 flask-cors==6.0.1
+Flask-Limiter==3.8.0           # ← [ADDED] rate limiting
 Flask-Migrate==4.1.0
 Flask-RESTful==0.3.10
 Flask-SQLAlchemy==3.1.1
@@ -34,6 +35,7 @@ psycopg2-binary==2.9.10
 pydantic==2.11.9
 pydantic_core==2.33.2
 python-dotenv==1.1.1
+python-json-logger==2.0.7      # ← [ADDED] JSON log formatter
 pytz==2025.2
 six==1.17.0
 sniffio==1.3.1
