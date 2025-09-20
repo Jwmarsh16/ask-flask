@@ -12,7 +12,6 @@ def init_rate_limiter(app) -> Limiter:
     for /api/chat. Called after routes are registered.
     """
     if app.config.get("_RATE_LIMITER_INIT", False):
-        # Already initialized; return existing limiter if stored
         limiter = app.extensions.get("limiter")
         if limiter:
             return limiter  # type: ignore
@@ -25,11 +24,9 @@ def init_rate_limiter(app) -> Limiter:
         headers_enabled=True,               # send standard rate-limit headers
     )
 
-    # Custom JSON for 429 responses
     @limiter.request_filter
     def _health_skip():
-        # Don’t rate-limit health checks
-        return request.path == "/health"
+        return request.path == "/health"  # don’t rate-limit health checks
 
     @limiter.error_handler
     def _rate_limit_exceeded(e):
@@ -40,12 +37,10 @@ def init_rate_limiter(app) -> Limiter:
         }
         return jsonify(payload), 429
 
-    # Apply a stricter limit to the chat endpoint if present
     chat_view = app.view_functions.get("chat")
     if chat_view is not None:
         limiter.limit("60 per minute")(chat_view)
 
-    # Expose for reuse/tests
     app.extensions["limiter"] = limiter
     app.config["_RATE_LIMITER_INIT"] = True
     return limiter
