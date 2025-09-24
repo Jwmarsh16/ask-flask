@@ -1,7 +1,20 @@
 // client/src/components/ChatBot.jsx
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useMemo } from 'react'
 import '../ChatBot.css'
+
+// ✨ ADDED: Markdown rendering + GFM + Prism highlighting
+import ReactMarkdown from 'react-markdown'                 // <-- render Markdown
+import remarkGfm from 'remark-gfm'                         // <-- GitHub-flavored Markdown
+import Prism from 'prismjs'                                 // <-- syntax highlighter
+import 'prismjs/components/prism-javascript'               // <-- common languages
+import 'prismjs/components/prism-typescript'
+import 'prismjs/components/prism-jsx'
+import 'prismjs/components/prism-tsx'
+import 'prismjs/components/prism-python'
+import 'prismjs/components/prism-json'
+import 'prismjs/components/prism-markup'
+import 'prismjs/themes/prism.css'                          // <-- default Prism theme (keeps change minimal)
 
 // 👇 Robust API base resolution:
 // - DEV: use VITE_API_BASE_URL or default to http://localhost:5555
@@ -21,15 +34,21 @@ function ChatBot() {
   const [model, setModel] = useState(
     () => localStorage.getItem('askFlaskModel') || 'gpt-3.5-turbo'
   )
-  const [streamEnabled, setStreamEnabled] = useState(() => {            // <-- ADDED: streaming toggle (default on)
+  const [streamEnabled, setStreamEnabled] = useState(() => {            // ✨ ADDED: streaming toggle (default on)
     const saved = localStorage.getItem('askFlaskStream')
     return saved ? saved === 'true' : true
   })
+
   const chatEndRef = useRef(null)
+  const chatWindowRef = useRef(null)                                    // ✨ ADDED: to scope Prism highlighting
 
   useEffect(() => {
     localStorage.setItem('askFlaskMessages', JSON.stringify(messages))
     scrollToBottom()
+    // ✨ ADDED: re-highlight any code blocks after messages change
+    if (chatWindowRef.current) {
+      Prism.highlightAllUnder(chatWindowRef.current)
+    }
   }, [messages])
 
   useEffect(() => {
@@ -37,7 +56,7 @@ function ChatBot() {
   }, [model])
 
   useEffect(() => {
-    localStorage.setItem('askFlaskStream', String(streamEnabled))       // <-- ADDED: persist toggle
+    localStorage.setItem('askFlaskStream', String(streamEnabled))       // ✨ ADDED: persist toggle
   }, [streamEnabled])
 
   const scrollToBottom = () => {
@@ -58,14 +77,14 @@ function ChatBot() {
     setInput('')
     setIsTyping(true)
 
-    if (streamEnabled && 'ReadableStream' in window) {                  // <-- ADDED: streaming path if supported
+    if (streamEnabled && 'ReadableStream' in window) {                  // (existing from Track 2) choose streaming path
       await sendMessageStreaming(trimmed, timestamp)
     } else {
-      await sendMessageNonStreaming(trimmed, timestamp)                  // <-- ADDED: fallback to existing POST
+      await sendMessageNonStreaming(trimmed, timestamp)
     }
   }
 
-  const sendMessageNonStreaming = async (trimmed, ts) => {               // <-- ADDED: extracted non-stream flow
+  const sendMessageNonStreaming = async (trimmed, ts) => {               // (existing) non-stream flow
     try {
       const res = await fetch(`${API_BASE}/api/chat`, { // prod → same-origin; dev → localhost:5555
         method: 'POST',
@@ -101,7 +120,7 @@ function ChatBot() {
     }
   }
 
-  const sendMessageStreaming = async (trimmed, ts) => {                  // <-- ADDED: streaming flow
+  const sendMessageStreaming = async (trimmed, ts) => {                  // (existing) streaming flow
     // Insert a placeholder assistant message to progressively append tokens
     const startIndex = messages.length + 1 // will be the index after we push the user message above
     setMessages((prev) => [
@@ -118,7 +137,7 @@ function ChatBot() {
 
       if (!res.ok || !res.body) {
         // If streaming not available or failed, gracefully fall back
-        return await sendMessageNonStreaming(trimmed, ts)               // <-- ADDED: graceful fallback
+        return await sendMessageNonStreaming(trimmed, ts)
       }
 
       const reader = res.body.getReader()
@@ -201,7 +220,7 @@ function ChatBot() {
         ...prev,
         { role: 'assistant', content: 'Network error during streaming. Retrying...', timestamp: ts },
       ])
-      await sendMessageNonStreaming(trimmed, ts)                        // <-- ADDED: retry non-stream
+      await sendMessageNonStreaming(trimmed, ts)
     } finally {
       setIsTyping(false)
     }
@@ -212,12 +231,59 @@ function ChatBot() {
     localStorage.removeItem('askFlaskMessages')
   }
 
+  // ✨ ADDED: Memoized Markdown components so copy buttons don’t re-create unnecessarily
+  const markdownComponents = useMemo(() => {
+    function CodeBlock({ inline, className, children, ...props }) {
+      // If inline code, render simple <code>
+      if (inline) {
+        return <code className={className} {...props}>{children}</code>
+      }
+
+      // Extract language from className like "language-js"
+      const match = /language-(\w+)/.exec(className || '')
+      const language = match ? match[1] : undefined
+      const rawCode = String(children || '')
+
+      const onCopy = async () => {
+        try {
+          await navigator.clipboard.writeText(rawCode)
+          // Add a quick visual feedback by toggling a data attribute (CSS handles the effect)
+          const btn = document.activeElement
+          if (btn) {
+            btn.setAttribute('data-copied', 'true')
+            setTimeout(() => btn.setAttribute('data-copied', 'false'), 1200)
+          }
+        } catch {
+          // no-op; clipboard may be blocked
+        }
+      }
+
+      return (
+        <div className="codeblock">
+          <button className="copy-btn" onClick={onCopy} aria-label="Copy code">
+            <span className="copy-default">Copy</span>
+            <span className="copy-done">Copied!</span>
+          </button>
+          <pre>
+            <code className={className} {...props}>
+              {rawCode}
+            </code>
+          </pre>
+        </div>
+      )
+    }
+
+    return {
+      code: CodeBlock, // override code renderer for fenced blocks and inline code
+    }
+  }, [])
+
   return (
     <div className="chatbot-container">
       <div className="chat-header">
         <h2>Ask-Flask 🤖</h2>
         <div className="chat-controls">
-          <label className="stream-toggle">                          {/* <-- ADDED: simple streaming toggle */}
+          <label className="stream-toggle">
             <input
               type="checkbox"
               checked={streamEnabled}
@@ -233,10 +299,24 @@ function ChatBot() {
         </div>
       </div>
 
-      <div className="chat-window">
+      <div className="chat-window" ref={chatWindowRef}>
         {messages.map((msg, idx) => (
           <div key={idx} className={`message ${msg.role === 'user' ? 'user' : 'bot'}`}>
-            <div className="message-content">{msg.content}</div>
+            <div className="message-content">
+              {msg.role === 'assistant' ? (
+                // ✨ CHANGED: assistant replies now render as Markdown (safe by default; no raw HTML)
+                <ReactMarkdown
+                  className="markdown"
+                  remarkPlugins={[remarkGfm]}
+                  components={markdownComponents}
+                >
+                  {msg.content || ''}
+                </ReactMarkdown>
+              ) : (
+                // User messages remain plain text for now
+                <span>{msg.content}</span>
+              )}
+            </div>
             <div className="timestamp">{msg.timestamp}</div>
           </div>
         ))}

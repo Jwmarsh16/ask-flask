@@ -1,50 +1,164 @@
-.chat-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding-bottom: 0.5rem;
-    border-bottom: 1px solid #334155;
-    margin-bottom: 0.5rem;
-    color: white;
-  }
-  
-  .chat-controls {
-    display: flex;
-    gap: 0.5rem;
-    align-items: center; /* <-- ADDED: align toggle with controls */
-  }
-  
-  .chat-controls select,
-  .chat-controls button {
-    background: #1e293b;
-    color: white;
-    border: 1px solid #475569;
-    padding: 0.4rem 0.75rem;
-    border-radius: 6px;
-    cursor: pointer;
-  }
-  
-  .chat-controls button:hover,
-  .chat-controls select:hover {
-    background: #334155;
-  }
+/* client/src/ChatBot.css */
 
-  .stream-toggle {                 /* <-- ADDED: simple label for the toggle */
-    display: inline-flex;
-    gap: 0.35rem;
-    align-items: center;
-    font-size: 0.9rem;
-    color: #e2e8f0;
-    user-select: none;
-  }
-  
-  .message-content {
-    margin-bottom: 0.25rem;
-  }
-  
-  .timestamp {
-    font-size: 0.75rem;
-    color: #94a3b8;
-    text-align: right;
-    margin-top: 2px;
-  }
+/* Existing styles kept; only minimal additions for Markdown & copy button */
+
+.chat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid #334155;
+  margin-bottom: 0.5rem;
+  color: white;
+}
+
+.chat-controls {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center; /* ✨ ADDED: align toggle with controls */
+}
+
+.chat-controls select,
+.chat-controls button {
+  background: #1e293b;
+  color: white;
+  border: 1px solid #475569;
+  padding: 0.4rem 0.75rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.chat-controls button:hover,
+.chat-controls select:hover {
+  background: #334155;
+}
+
+.stream-toggle {                 /* ✨ ADDED: simple label for the toggle */
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: center;
+  font-size: 0.9rem;
+  color: #e2e8f0;
+  user-select: none;
+}
+
+.message-content {
+  margin-bottom: 0.25rem;
+}
+
+.timestamp {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  text-align: right;
+  margin-top: 2px;
+}
+
+/* ✨ ADDED: Markdown typography for assistant messages */
+.markdown {
+  line-height: 1.6;
+  color: #e2e8f0;                 /* keep readable on dark bg */
+  word-wrap: break-word;
+}
+
+.markdown p {
+  margin: 0.4rem 0;
+}
+
+.markdown a {
+  color: #60a5fa;
+  text-decoration: underline;
+}
+
+.markdown ul,
+.markdown ol {
+  margin: 0.5rem 0 0.5rem 1.25rem;
+}
+
+.markdown li + li {
+  margin-top: 0.25rem;
+}
+
+.markdown blockquote {
+  border-left: 3px solid #475569;
+  margin: 0.6rem 0;
+  padding: 0.25rem 0.75rem;
+  color: #cbd5e1;
+  background: rgba(51, 65, 85, 0.25);
+  border-radius: 4px;
+}
+
+/* Tables (GFM) */
+.markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.6rem 0;
+  overflow: auto;
+}
+
+.markdown th,
+.markdown td {
+  border: 1px solid #334155;
+  padding: 0.4rem 0.5rem;
+}
+
+.markdown th {
+  background: rgba(30, 41, 59, 0.8);
+  color: #e5e7eb;
+  text-align: left;
+}
+
+/* Inline code */
+.markdown :not(pre) > code {
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid #334155;
+  padding: 0.1rem 0.3rem;
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+  font-size: 0.95em;
+}
+
+/* Fenced code blocks with a copy button */
+.codeblock {
+  position: relative;             /* position the button over the block */
+  margin: 0.6rem 0;
+}
+
+.codeblock pre {
+  margin: 0;
+  overflow: auto;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  background: #0b1020;            /* darker than prism default for contrast */
+}
+
+/* Copy button */
+.copy-btn {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  background: #0f172a;
+  color: #e2e8f0;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.copy-btn:hover {
+  background: #1e293b;
+}
+
+/* Copy button “Copied!” feedback using data attribute */
+.copy-btn .copy-done {
+  display: none;
+}
+
+.copy-btn[data-copied="true"] .copy-default {
+  display: none;
+}
+
+.copy-btn[data-copied="true"] .copy-done {
+  display: inline;
+}
