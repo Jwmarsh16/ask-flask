@@ -1,6 +1,6 @@
 /* client/src/ChatBot.css */
 
-/* Existing styles kept; only minimal additions for Markdown & copy button */
+/* Existing styles kept; minimal changes to let Prism theme control background */
 
 .chat-header {
   display: flex;
@@ -15,7 +15,7 @@
 .chat-controls {
   display: flex;
   gap: 0.5rem;
-  align-items: center; /* ✨ ADDED: align toggle with controls */
+  align-items: center; /* align toggle with controls */
 }
 
 .chat-controls select,
@@ -33,7 +33,7 @@
   background: #334155;
 }
 
-.stream-toggle {                 /* ✨ ADDED: simple label for the toggle */
+.stream-toggle {
   display: inline-flex;
   gap: 0.35rem;
   align-items: center;
@@ -53,10 +53,10 @@
   margin-top: 2px;
 }
 
-/* ✨ ADDED: Markdown typography for assistant messages */
+/* Markdown typography */
 .markdown {
   line-height: 1.6;
-  color: #e2e8f0;                 /* keep readable on dark bg */
+  color: #e2e8f0;
   word-wrap: break-word;
 }
 
@@ -120,7 +120,7 @@
 
 /* Fenced code blocks with a copy button */
 .codeblock {
-  position: relative;             /* position the button over the block */
+  position: relative;
   margin: 0.6rem 0;
 }
 
@@ -129,7 +129,7 @@
   overflow: auto;
   border: 1px solid #334155;
   border-radius: 6px;
-  background: #0b1020;            /* darker than prism default for contrast */
+  /* background removed to let Prism theme control it */ /* <-- CHANGED */
 }
 
 /* Copy button */
@@ -150,7 +150,7 @@
   background: #1e293b;
 }
 
-/* Copy button “Copied!” feedback using data attribute */
+/* Copy button “Copied!” feedback */
 .copy-btn .copy-done {
   display: none;
 }

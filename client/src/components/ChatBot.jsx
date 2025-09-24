@@ -3,18 +3,19 @@
 import { useEffect, useRef, useState, useMemo } from 'react'
 import '../ChatBot.css'
 
-// ✨ ADDED: Markdown rendering + GFM + Prism highlighting
-import ReactMarkdown from 'react-markdown'                 // <-- render Markdown
-import remarkGfm from 'remark-gfm'                         // <-- GitHub-flavored Markdown
-import Prism from 'prismjs'                                 // <-- syntax highlighter
-import 'prismjs/components/prism-javascript'               // <-- common languages
+// ✨ Markdown rendering + GFM + Prism highlighting
+import ReactMarkdown from 'react-markdown'                 // render Markdown
+import remarkGfm from 'remark-gfm'                         // GitHub-flavored Markdown
+import Prism from 'prismjs'                                 // syntax highlighter
+import 'prismjs/components/prism-javascript'               // common languages
 import 'prismjs/components/prism-typescript'
 import 'prismjs/components/prism-jsx'
 import 'prismjs/components/prism-tsx'
 import 'prismjs/components/prism-python'
 import 'prismjs/components/prism-json'
 import 'prismjs/components/prism-markup'
-import 'prismjs/themes/prism.css'                          // <-- default Prism theme (keeps change minimal)
+// import 'prismjs/themes/prism.css'                        // ❌ OLD: light theme (replaced)
+import 'prismjs/themes/prism-tomorrow.css'                  // ✅ CHANGED: darker theme to match dark UI
 
 // 👇 Robust API base resolution:
 // - DEV: use VITE_API_BASE_URL or default to http://localhost:5555
@@ -34,18 +35,18 @@ function ChatBot() {
   const [model, setModel] = useState(
     () => localStorage.getItem('askFlaskModel') || 'gpt-3.5-turbo'
   )
-  const [streamEnabled, setStreamEnabled] = useState(() => {            // ✨ ADDED: streaming toggle (default on)
+  const [streamEnabled, setStreamEnabled] = useState(() => {            // streaming toggle (default on)
     const saved = localStorage.getItem('askFlaskStream')
     return saved ? saved === 'true' : true
   })
 
   const chatEndRef = useRef(null)
-  const chatWindowRef = useRef(null)                                    // ✨ ADDED: to scope Prism highlighting
+  const chatWindowRef = useRef(null)                                    // scope Prism highlighting
 
   useEffect(() => {
     localStorage.setItem('askFlaskMessages', JSON.stringify(messages))
     scrollToBottom()
-    // ✨ ADDED: re-highlight any code blocks after messages change
+    // Re-highlight code blocks whenever messages change
     if (chatWindowRef.current) {
       Prism.highlightAllUnder(chatWindowRef.current)
     }
@@ -56,7 +57,7 @@ function ChatBot() {
   }, [model])
 
   useEffect(() => {
-    localStorage.setItem('askFlaskStream', String(streamEnabled))       // ✨ ADDED: persist toggle
+    localStorage.setItem('askFlaskStream', String(streamEnabled))       // persist toggle
   }, [streamEnabled])
 
   const scrollToBottom = () => {
@@ -77,14 +78,14 @@ function ChatBot() {
     setInput('')
     setIsTyping(true)
 
-    if (streamEnabled && 'ReadableStream' in window) {                  // (existing from Track 2) choose streaming path
+    if (streamEnabled && 'ReadableStream' in window) {                  // choose streaming path
       await sendMessageStreaming(trimmed, timestamp)
     } else {
       await sendMessageNonStreaming(trimmed, timestamp)
     }
   }
 
-  const sendMessageNonStreaming = async (trimmed, ts) => {               // (existing) non-stream flow
+  const sendMessageNonStreaming = async (trimmed, ts) => {               // non-stream flow
     try {
       const res = await fetch(`${API_BASE}/api/chat`, { // prod → same-origin; dev → localhost:5555
         method: 'POST',
@@ -110,7 +111,7 @@ function ChatBot() {
         }),
       }
       setMessages((prev) => [...prev, botMessage])
-    } catch (error) {
+    } catch (_error) {
       setMessages((prev) => [
         ...prev,
         { role: 'assistant', content: 'Network error. Please try again.', timestamp: ts },
@@ -120,9 +121,9 @@ function ChatBot() {
     }
   }
 
-  const sendMessageStreaming = async (trimmed, ts) => {                  // (existing) streaming flow
+  const sendMessageStreaming = async (trimmed, ts) => {                  // streaming flow
     // Insert a placeholder assistant message to progressively append tokens
-    const startIndex = messages.length + 1 // will be the index after we push the user message above
+    const startIndex = messages.length + 1 // index after pushing the user message above
     setMessages((prev) => [
       ...prev,
       { role: 'assistant', content: '', timestamp: ts }
@@ -231,7 +232,7 @@ function ChatBot() {
     localStorage.removeItem('askFlaskMessages')
   }
 
-  // ✨ ADDED: Memoized Markdown components so copy buttons don’t re-create unnecessarily
+  // Memoized Markdown components so copy buttons don’t re-create unnecessarily
   const markdownComponents = useMemo(() => {
     function CodeBlock({ inline, className, children, ...props }) {
       // If inline code, render simple <code>
@@ -247,14 +248,14 @@ function ChatBot() {
       const onCopy = async () => {
         try {
           await navigator.clipboard.writeText(rawCode)
-          // Add a quick visual feedback by toggling a data attribute (CSS handles the effect)
+          // Quick visual feedback by toggling a data attribute (CSS handles effect)
           const btn = document.activeElement
           if (btn) {
             btn.setAttribute('data-copied', 'true')
             setTimeout(() => btn.setAttribute('data-copied', 'false'), 1200)
           }
         } catch {
-          // no-op; clipboard may be blocked
+          // clipboard may be blocked; no-op
         }
       }
 
@@ -264,7 +265,7 @@ function ChatBot() {
             <span className="copy-default">Copy</span>
             <span className="copy-done">Copied!</span>
           </button>
-          <pre>
+          <pre className={className}> {/* ✅ CHANGED: pass language class to <pre> so Prism theme rules apply */}
             <code className={className} {...props}>
               {rawCode}
             </code>
@@ -304,7 +305,7 @@ function ChatBot() {
           <div key={idx} className={`message ${msg.role === 'user' ? 'user' : 'bot'}`}>
             <div className="message-content">
               {msg.role === 'assistant' ? (
-                // ✨ CHANGED: assistant replies now render as Markdown (safe by default; no raw HTML)
+                // Assistant replies now render as Markdown (safe by default; no raw HTML)
                 <ReactMarkdown
                   className="markdown"
                   remarkPlugins={[remarkGfm]}
