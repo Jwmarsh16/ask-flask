@@ -1,0 +1,9 @@
+# requirements-dev.txt
+# Purpose: Dev/test-only Python deps used locally and in CI.
+# Install with: pip install -r requirements-dev.txt
+
+pytest>=8.0.0
+pytest-cov>=5.0.0
+ruff>=0.5.0
+black>=24.3.0
+isort>=5.13.0
