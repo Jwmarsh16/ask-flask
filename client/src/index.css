@@ -1,68 +1,175 @@
-:root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
+/* client/src/ChatBot.css */
 
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
+/* Existing styles kept; minimal changes to let Prism theme control background */
 
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-a:hover {
-  color: #535bf2;
-}
-
-body {
-  margin: 0;
+.chat-header {
   display: flex;
-  place-items: center;
-  min-width: 320px;
-  min-height: 100vh;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid #334155;
+  margin-bottom: 0.5rem;
+  color: white;
 }
 
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
+.chat-controls {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center; /* align toggle with controls */
 }
 
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  background-color: #1a1a1a;
+.chat-controls select,
+.chat-controls button {
+  background: #1e293b;
+  color: white;
+  border: 1px solid #475569;
+  padding: 0.4rem 0.75rem;
+  border-radius: 6px;
   cursor: pointer;
-  transition: border-color 0.25s;
-}
-button:hover {
-  border-color: #646cff;
-}
-button:focus,
-button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
-  }
-  a:hover {
-    color: #747bff;
-  }
-  button {
-    background-color: #f9f9f9;
-  }
+.chat-controls button:hover,
+.chat-controls select:hover {
+  background: #334155;
+}
+
+.stream-toggle {
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: center;
+  font-size: 0.9rem;
+  color: #e2e8f0;
+  user-select: none;
+}
+
+/* ---- ADDED: Rate limit pill ---- */
+.rate-pill {
+  background: rgba(15, 23, 42, 0.8); /* slate-900-ish */
+  border: 1px solid #334155;
+  color: #e2e8f0;
+  font-size: 0.8rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  line-height: 1;
+}
+
+.message-content {
+  margin-bottom: 0.25rem;
+}
+
+.timestamp {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  text-align: right;
+  margin-top: 2px;
+}
+
+/* Markdown typography */
+.markdown {
+  line-height: 1.6;
+  color: #e2e8f0;
+  word-wrap: break-word;
+}
+
+.markdown p {
+  margin: 0.4rem 0;
+}
+
+.markdown a {
+  color: #60a5fa;
+  text-decoration: underline;
+}
+
+.markdown ul,
+.markdown ol {
+  margin: 0.5rem 0 0.5rem 1.25rem;
+}
+
+.markdown li + li {
+  margin-top: 0.25rem;
+}
+
+.markdown blockquote {
+  border-left: 3px solid #475569;
+  margin: 0.6rem 0;
+  padding: 0.25rem 0.75rem;
+  color: #cbd5e1;
+  background: rgba(51, 65, 85, 0.25);
+  border-radius: 4px;
+}
+
+/* Tables (GFM) */
+.markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.6rem 0;
+  overflow: auto;
+}
+
+.markdown th,
+.markdown td {
+  border: 1px solid #334155;
+  padding: 0.4rem 0.5rem;
+}
+
+.markdown th {
+  background: rgba(30, 41, 59, 0.8);
+  color: #e5e7eb;
+  text-align: left;
+}
+
+/* Inline code */
+.markdown :not(pre) > code {
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid #334155;
+  padding: 0.1rem 0.3rem;
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+  font-size: 0.95em;
+}
+
+/* Fenced code blocks with a copy button */
+.codeblock {
+  position: relative;
+  margin: 0.6rem 0;
+}
+
+.codeblock pre {
+  margin: 0;
+  overflow: auto;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  /* background removed to let Prism theme control it */ /* <-- CHANGED */
+}
+
+/* Copy button */
+.copy-btn {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  background: #0f172a;
+  color: #e2e8f0;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.copy-btn:hover {
+  background: #1e293b;
+}
+
+/* Copy button “Copied!” feedback */
+.copy-btn .copy-done {
+  display: none;
+}
+
+.copy-btn[data-copied="true"] .copy-default {
+  display: none;
+}
+
+.copy-btn[data-copied="true"] .copy-done {
+  display: inline;
 }

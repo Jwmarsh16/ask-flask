@@ -1,5 +1,3 @@
-// client/src/components/ChatBot.jsx
-
 import { useEffect, useRef, useState, useMemo } from 'react'
 import '../ChatBot.css'
 
@@ -39,6 +37,7 @@ function ChatBot() {
     const saved = localStorage.getItem('askFlaskStream')
     return saved ? saved === 'true' : true
   })
+  const [rateRemaining, setRateRemaining] = useState(null)              // <-- ADDED: track X-RateLimit-Remaining
 
   const chatEndRef = useRef(null)
   const chatWindowRef = useRef(null)                                    // scope Prism highlighting
@@ -93,6 +92,10 @@ function ChatBot() {
         body: JSON.stringify({ message: trimmed, model }),
       })
 
+      // --- Rate limit header handling (JSON path) ---
+      const rl = res.headers.get('X-RateLimit-Remaining')               // <-- ADDED: read header
+      if (rl !== null) setRateRemaining(rl)                              // <-- ADDED: update state
+
       const data = await res.json()
 
       const botContent =
@@ -135,6 +138,10 @@ function ChatBot() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: trimmed, model }),
       })
+
+      // --- Rate limit header handling (SSE path) ---
+      const rl = res.headers.get('X-RateLimit-Remaining')               // <-- ADDED: read header before streaming
+      if (rl !== null) setRateRemaining(rl)                              // <-- ADDED: update state
 
       if (!res.ok || !res.body) {
         // If streaming not available or failed, gracefully fall back
@@ -284,6 +291,10 @@ function ChatBot() {
       <div className="chat-header">
         <h2>Ask-Flask 🤖</h2>
         <div className="chat-controls">
+          {/* <-- ADDED: small pill showing remaining requests in current window */}
+          <div className="rate-pill" title="Requests remaining this window">
+            Rate limit: {rateRemaining ?? '—'} left
+          </div>
           <label className="stream-toggle">
             <input
               type="checkbox"
