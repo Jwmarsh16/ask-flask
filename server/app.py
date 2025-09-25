@@ -17,8 +17,8 @@ from flask import (
     render_template,  # SPA fallback
     current_app,      # proper logger access
     g,                # attach request_id and timing
-    Response,         # <-- ADDED: for streaming responses
-    stream_with_context,  # <-- ADDED: keep Flask ctx during generator
+    Response,
+    stream_with_context,
 )
 from dotenv import load_dotenv
 
@@ -32,6 +32,8 @@ try:
     )
     from .security import register_security_headers  # security headers
     from .ratelimit import init_rate_limiter        # rate limiting
+    from .schemas import ChatRequest, ChatResponse, ErrorResponse  # <-- CHANGED: import DTOs
+    from .services.openai_client import OpenAIService              # <-- CHANGED: import service façade
 except ImportError:
     from observability import (
         init_logging,
@@ -41,6 +43,10 @@ except ImportError:
     )
     from security import register_security_headers
     from ratelimit import init_rate_limiter
+    from schemas import ChatRequest, ChatResponse, ErrorResponse   # <-- CHANGED: import DTOs (abs)
+    from services.openai_client import OpenAIService               # <-- CHANGED: import service façade (abs)
+
+from pydantic import ValidationError  # <-- CHANGED: handle DTO validation errors
 
 load_dotenv()
 
@@ -49,6 +55,16 @@ client = OpenAI(
     api_key=os.getenv("OPENAI_API_KEY"),
     max_retries=2,     # retry transient failures a couple times
     timeout=30.0,      # hard deadline per request (seconds)
+)
+
+# <-- CHANGED: instantiate OpenAIService with logger for structured logs
+openai_service = OpenAIService(
+    client=client,
+    logger=app.logger,           # pass Flask logger into service
+    timeout=30.0,
+    max_retries=2,
+    breaker_threshold=3,
+    breaker_cooldown=20.0,
 )
 
 # ---------------------- Cross-cutting initialization ----------------------
@@ -65,162 +81,190 @@ def health():
     return jsonify({"status": "ok"}), 200  # for Render health checks
 
 # --------------------------- API ROUTES -----------------------------------
-@app.route('/api/chat', methods=['POST'])
+@app.route("/api/chat", methods=["POST"])
 def chat():
+    """
+    Non-streaming chat endpoint.
+    CHANGED: Uses Pydantic DTOs for validation and OpenAIService for calls.
+    """
     data = request.get_json(silent=True)
-    if not data or "message" not in data:
+    if not data or "message" not in data:  # <-- CHANGED: preserve original 400 for missing 'message'
         return jsonify({"error": "Missing JSON body or 'message' field"}), 400  # validation
 
-    user_message = (data.get('message') or '').strip()  # trim whitespace
-    model = data.get('model', 'gpt-3.5-turbo')  # default model
+    # <-- CHANGED: trim early to preserve previous behavior and clearer 413 logic
+    incoming_message = (data.get("message") or "").strip()
+    model = data.get("model", "gpt-3.5-turbo")
 
-    # Guardrail: reject unreasonably large inputs to protect the service
-    if len(user_message) > 4000:  # ~4KB text limit (tunable)
+    # <-- CHANGED: preserve 413 semantics from previous implementation
+    if len(incoming_message) > 4000:
         return jsonify({"error": "Message too large"}), 413
 
+    # <-- CHANGED: Validate with DTOs (min_length, allowed models)
     try:
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": user_message}
-            ],
-        )
+        req = ChatRequest(message=incoming_message, model=model)
+    except ValidationError as ve:
+        # Map DTO failures to a 400 response; keep shape simple
+        return jsonify({"error": ve.errors()}), 400
 
-        reply = response.choices[0].message.content
+    messages = [
+        {"role": "system", "content": "You are a helpful assistant."},  # unchanged system prompt
+        {"role": "user", "content": req.message},
+    ]
 
-        # Structured usage log for observability (token counts)
-        try:
-            usage = getattr(response, "usage", None)
-            prompt_tokens = getattr(usage, "prompt_tokens", None)
-            completion_tokens = getattr(usage, "completion_tokens", None)
-            total_tokens = getattr(usage, "total_tokens", None)
-            current_app.logger.info(
-                "openai.chat.complete",
-                extra={
-                    "event": "openai.chat.complete",
-                    "request_id": getattr(g, "request_id", None),
-                    "model": model,
-                    "prompt_tokens": prompt_tokens,
-                    "completion_tokens": completion_tokens,
-                    "total_tokens": total_tokens,
-                },
+    try:
+        # <-- CHANGED: use service façade (handles retries, breaker, logs)
+        reply_text = openai_service.complete(model=req.model, messages=messages)
+
+        # <-- CHANGED: shape via DTO for clarity (optional)
+        resp = ChatResponse(reply=reply_text)
+        return jsonify(resp.model_dump())
+    except RuntimeError as exc:
+        # <-- CHANGED: explicit handling for circuit breaker open
+        if str(exc) == "circuit_open":
+            current_app.logger.warning(
+                "openai.circuit_open",
+                extra={"event": "breaker.open", "request_id": getattr(g, "request_id", None)},
             )
-        except Exception:
-            pass  # never let logging failures affect the response
-
-        return jsonify({'reply': reply})
-    except Exception as e:
-        # Log exception with the same request_id for correlation
+            return jsonify({"error": "Service temporarily unavailable"}), 503
+        # Otherwise fall through to generic 500 with original behavior
         current_app.logger.error(
             "openai.chat.error",
             exc_info=True,
             extra={
                 "event": "openai.chat.error",
                 "request_id": getattr(g, "request_id", None),
-                "model": model,
+                "model": req.model,
             },
         )
-        return jsonify({'error': str(e)}), 500
+        return jsonify({"error": str(exc)}), 500  # <-- CHANGED: preserve previous error body
+    except Exception as e:
+        # Unchanged: log exception with request_id and return prior error shape
+        current_app.logger.error(
+            "openai.chat.error",
+            exc_info=True,
+            extra={
+                "event": "openai.chat.error",
+                "request_id": getattr(g, "request_id", None),
+                "model": req.model,
+            },
+        )
+        return jsonify({"error": str(e)}), 500  # <-- CHANGED: preserve previous error body
 
 
-@app.route('/api/chat/stream', methods=['POST'])
+@app.route("/api/chat/stream", methods=["POST"])
 def chat_stream():
     """
     Stream assistant tokens via Server-Sent Events (SSE).
     Keeps existing /api/chat unchanged for graceful fallback.
+    CHANGED: Validates via DTOs and streams via OpenAIService.
     """
     data = request.get_json(silent=True)
-    if not data or "message" not in data:
+    if not data or "message" not in data:  # <-- CHANGED: preserve original 400 for missing 'message'
         return jsonify({"error": "Missing JSON body or 'message' field"}), 400  # validation
 
-    user_message = (data.get('message') or '').strip()
-    model = data.get('model', 'gpt-3.5-turbo')
+    incoming_message = (data.get("message") or "").strip()
+    model = data.get("model", "gpt-3.5-turbo")
 
-    # Same guardrail as non-stream route
-    if len(user_message) > 4000:
+    # Same guardrail to preserve prior 413 behavior
+    if len(incoming_message) > 4000:
         return jsonify({"error": "Message too large"}), 413
 
-    # Log stream start for correlation
+    try:
+        req = ChatRequest(message=incoming_message, model=model)  # <-- CHANGED: DTO validation
+    except ValidationError as ve:
+        return jsonify({"error": ve.errors()}), 400
+
+    # Log stream start for correlation (unchanged)
     current_app.logger.info(
         "openai.chat.stream.start",
         extra={
-            "event": "openai.chat.stream.start",  # <-- ADDED: start log
+            "event": "openai.chat.stream.start",
             "request_id": getattr(g, "request_id", None),
-            "model": model,
+            "model": req.model,
         },
     )
 
-    @stream_with_context  # <-- ADDED: ensure g.request_id etc. remain available
+    messages = [
+        {"role": "system", "content": "You are a helpful assistant."},  # unchanged system prompt
+        {"role": "user", "content": req.message},
+    ]
+
+    @stream_with_context  # keep Flask ctx during generator
     def generate():
         import json
         try:
-            # Start the OpenAI streaming request
-            stream = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": "You are a helpful assistant."},
-                    {"role": "user", "content": user_message},
-                ],
-                stream=True,  # <-- ADDED: enable streaming
-            )
-
-            # Emit an initial event with the request_id for client correlation (optional)
+            # <-- CHANGED: stream via service façade (yields str tokens)
+            # Emit an initial event with the request_id for client correlation
             init_payload = {"request_id": getattr(g, "request_id", None)}
-            yield f"data: {json.dumps(init_payload)}\n\n"  # <-- ADDED: initial SSE message
+            yield f"data: {json.dumps(init_payload)}\n\n"  # unchanged framing
 
-            # Iterate chunks and push deltas as tokens
-            for chunk in stream:
-                try:
-                    # The SDK yields ChatCompletionChunk objects; extract the delta content if present
-                    delta = chunk.choices[0].delta
-                    token = getattr(delta, "content", None)
-                    if token:
-                        payload = {"token": token}
-                        yield f"data: {json.dumps(payload)}\n\n"  # <-- ADDED: per-token SSE
-                except Exception:
-                    # If the shape changes, best-effort emit raw chunk
-                    payload = {"token": str(chunk)}
-                    yield f"data: {json.dumps(payload)}\n\n"
+            for token in openai_service.stream(model=req.model, messages=messages):
+                payload = {"token": token}
+                yield f"data: {json.dumps(payload)}\n\n"  # unchanged per-token SSE
 
-            # Final event to signal completion
+            # Final event to signal completion (unchanged)
             done_payload = {"done": True}
-            yield f"data: {json.dumps(done_payload)}\n\n"  # <-- ADDED: done marker
+            yield f"data: {json.dumps(done_payload)}\n\n"
 
-            # Log completion (usage may not be available on streamed chunks)
+            # Log completion (usage typically unavailable in stream)
             current_app.logger.info(
                 "openai.chat.stream.complete",
                 extra={
-                    "event": "openai.chat.stream.complete",  # <-- ADDED: end log
+                    "event": "openai.chat.stream.complete",
                     "request_id": getattr(g, "request_id", None),
-                    "model": model,
-                    # Tokens unknown in most streamed cases; leave None to avoid wrong data.
+                    "model": req.model,
                     "prompt_tokens": None,
                     "completion_tokens": None,
                     "total_tokens": None,
                 },
             )
-        except Exception as e:
-            # Log and surface a terminal SSE error event (response is already streaming)
+        except RuntimeError as exc:
+            # <-- CHANGED: circuit breaker surfaced as 503-equivalent terminal event
+            if str(exc) == "circuit_open":
+                current_app.logger.warning(
+                    "openai.circuit_open",
+                    extra={
+                        "event": "breaker.open",
+                        "request_id": getattr(g, "request_id", None),
+                        "model": req.model,
+                    },
+                )
+                err_payload = {"error": "Service temporarily unavailable", "done": True}
+                yield f"data: {json.dumps(err_payload)}\n\n"
+                return
+            # Other runtime errors → log and emit terminal error frame
             current_app.logger.error(
                 "openai.chat.stream.error",
                 exc_info=True,
                 extra={
-                    "event": "openai.chat.stream.error",  # <-- ADDED: error log
+                    "event": "openai.chat.stream.error",
                     "request_id": getattr(g, "request_id", None),
-                    "model": model,
+                    "model": req.model,
                 },
             )
-            err_payload = {"error": str(e), "done": True}
+            err_payload = {"error": str(exc), "done": True}  # <-- CHANGED: preserve previous error body
+            yield f"data: {json.dumps(err_payload)}\n\n"
+        except Exception as e:
+            # Generic exceptions → log and emit terminal error frame
+            current_app.logger.error(
+                "openai.chat.stream.error",
+                exc_info=True,
+                extra={
+                    "event": "openai.chat.stream.error",
+                    "request_id": getattr(g, "request_id", None),
+                    "model": req.model,
+                },
+            )
+            err_payload = {"error": str(e), "done": True}  # <-- CHANGED: preserve previous error body
             yield f"data: {json.dumps(err_payload)}\n\n"
 
     # Stream-friendly headers (avoid proxy buffering)
     headers = {
-        "Cache-Control": "no-cache",          # <-- ADDED: prevent caching
-        "X-Accel-Buffering": "no",            # <-- ADDED: disable buffering on some proxies
-        "Connection": "keep-alive",           # <-- ADDED: keep connection open
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+        "Connection": "keep-alive",
     }
-    return Response(generate(), mimetype="text/event-stream", headers=headers)  # <-- ADDED: SSE Response
+    return Response(generate(), mimetype="text/event-stream", headers=headers)
 # -------------------------------------------------------------------------
 
 # ---------------------- SPA FALLBACK FOR ROUTING -------------------------
@@ -234,6 +278,6 @@ def not_found(_e):
 # >>> Initialize rate limiter AFTER routes are registered
 init_rate_limiter(app)
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Local dev convenience; Render uses gunicorn
     app.run(debug=True)
