@@ -1,0 +1,54 @@
+# pyproject.toml
+# Purpose: Central config (pytest, coverage, ruff, black, isort, mypy).
+# ✅ UPDATED: add mypy (scoped to new modules so CI stays green now).
+
+[tool.pytest.ini_options]
+addopts = "-q --disable-warnings --maxfail=1 --cov=server --cov-report=term-missing"
+testpaths = ["server/tests"]
+filterwarnings = [
+  "ignore::DeprecationWarning",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["server"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+
+[tool.black]
+line-length = 88
+target-version = ["py311"]
+extend-exclude = "client/|migrations/"
+
+[tool.isort]
+profile = "black"
+line_length = 88
+skip_glob = ["client/*", "server/migrations/*"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+extend-exclude = ["client", "server/migrations"]
+select = ["E", "F", "I"]  # basic errors/flake8, import order
+
+# ✅ NEW: mypy (strict-ish on new modules; safe defaults elsewhere)
+[tool.mypy]
+python_version = "3.11"
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_return_any = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+no_implicit_optional = true
+show_error_context = true
+pretty = true
+files = "server/services,server/schemas"  # ✅ limit scope for now
+
+[[tool.mypy.overrides]]
+module = [
+  "flask.*",
+  "openai.*",
+]
+ignore_missing_imports = true
