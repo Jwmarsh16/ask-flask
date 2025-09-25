@@ -1,7 +1,5 @@
 # .github/workflows/ci.yml
-# ✅ UPDATED: add mypy step (scoped to new modules).
-# ✅ TEMP: install pydantic in CI so mypy can import server/schemas now.
-#          We'll fold pydantic into requirements.txt after you share it.
+# ✅ UPDATED: remove temporary pydantic install (now in requirements.txt)
 
 name: CI
 
@@ -45,7 +43,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install -r requirements-dev.txt
-          pip install pydantic  # TEMP: ensure mypy can import server/schemas  # inline-change
+          # (REMOVED) pip install pydantic  # now provided by requirements.txt  # inline-change
 
       - name: Lint (ruff)
         run: ruff check .
@@ -57,7 +55,7 @@ jobs:
         run: isort --check-only .
 
       - name: Type check (mypy)
-        run: mypy server/services server/schemas  # scoped so CI is green  # inline-change
+        run: mypy server/services server/schemas  # scoped so CI is green
 
       - name: Run tests (pytest + coverage)
         run: pytest
