@@ -9,6 +9,7 @@ from typing import Any, Dict
 
 from flask import g, request, jsonify
 from werkzeug.exceptions import HTTPException
+from pydantic import ValidationError  # <-- CHANGED: explicitly handle DTO errors
 
 try:
     from pythonjsonlogger import jsonlogger
@@ -86,6 +87,19 @@ def register_latency_logging(app) -> None:
 def register_error_handlers(app) -> None:
     if app.config.get("_OBS_ERRORS_INIT", False):
         return
+
+    @app.errorhandler(ValidationError)  # <-- CHANGED: pydantic DTO errors to unified 400
+    def _validation_error(e: ValidationError):
+        if not request.path.startswith("/api"):
+            return e
+        payload = {
+            "error": "Validation error",
+            "code": 400,
+            "request_id": getattr(g, "request_id", None),
+            "details": e.errors(),
+        }
+        app.logger.warning("http.error", extra={"event": "http.error", **payload})
+        return jsonify(payload), 400
 
     @app.errorhandler(HTTPException)
     def _http_exception(e: HTTPException):

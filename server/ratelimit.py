@@ -54,7 +54,7 @@ def init_rate_limiter(app) -> Limiter:
             "code": 429,
             "request_id": getattr(g, "request_id", None),
         }
-        return jsonify(payload), 429
+        return jsonify(payload), 429  # <-- already unified shape
 
     # ------------------------ KEY FIX: SHARED LIMIT ------------------------
     # Use ONE shared budget (15/min) for both chat endpoints so they cannot

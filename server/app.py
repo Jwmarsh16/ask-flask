@@ -15,6 +15,7 @@ from flask import (
 )
 from dotenv import load_dotenv
 from pydantic import ValidationError  # handle DTO validation errors
+from werkzeug.exceptions import RequestEntityTooLarge  # <-- CHANGED: use HTTPException for 413 so global handler shapes JSON
 
 # ---------------------- Import strategy (works in BOTH launch modes) ----------------------
 # If launched with:  gunicorn --chdir server app:app
@@ -22,20 +23,20 @@ from pydantic import ValidationError  # handle DTO validation errors
 # If launched with:  gunicorn server.app:app
 #   -> this module is loaded as part of the 'server' package, so use relative imports.
 if __package__ in (None, ""):  # <-- CHANGED: mode-aware imports for top-level launch
-    from config import app  # load Flask app instance  # inline-change
-    from observability import (  # JSON logging & middleware  # inline-change
+    from config import app  # load Flask app instance  # inline-change: absolute import in top-level mode
+    from observability import (  # JSON logging & middleware  # inline-change: absolute import
         init_logging,
         register_request_id,
         register_latency_logging,
         register_error_handlers,
     )
-    from security import register_security_headers               # inline-change
-    from ratelimit import init_rate_limiter                      # inline-change
-    from schemas import ChatRequest, ChatResponse, ErrorResponse # inline-change
+    from security import register_security_headers               # inline-change: absolute import
+    from ratelimit import init_rate_limiter                      # inline-change: absolute import
+    from schemas import ChatRequest, ChatResponse, ErrorResponse # inline-change: absolute import
 
     # --- Robust import of OpenAIService with fallback shim -------------------
     try:
-        import services.openai_client as _openai_client_mod       # inline-change
+        import services.openai_client as _openai_client_mod       # inline-change: absolute import
         OpenAIService = getattr(_openai_client_mod, "OpenAIService", None)  # inline-change
     except Exception:  # noqa: BLE001
         OpenAIService = None  # will define a local shim below                # inline-change
@@ -53,7 +54,7 @@ else:  # <-- CHANGED: mode-aware imports for package launch (server.app:app)
 
     # --- Robust import of OpenAIService with fallback shim -------------------
     try:
-        from .services import openai_client as _openai_client_mod   # inline-change
+        from .services import openai_client as _openai_client_mod   # inline-change: relative import in package mode
         OpenAIService = getattr(_openai_client_mod, "OpenAIService", None)  # inline-change
     except Exception:  # noqa: BLE001
         OpenAIService = None  # will define a local shim below                # inline-change
@@ -134,6 +135,14 @@ register_security_headers(app)    # CSP/HSTS/nosniff/referrer/xfo
 # -------------------------------------------------------------------------
 
 
+def _error_payload(message: str, code: int):  # <-- ADDED: small helper to unify JSON error bodies
+    return {
+        "error": message,
+        "code": code,
+        "request_id": getattr(g, "request_id", None),
+    }
+
+
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({"status": "ok"}), 200  # for Render health checks
@@ -147,18 +156,21 @@ def chat():
     """
     data = request.get_json(silent=True)
     if not data or "message" not in data:  # preserve original 400 for missing 'message'
-        return jsonify({"error": "Missing JSON body or 'message' field"}), 400
+        return jsonify(_error_payload("Missing JSON body or 'message' field", 400)), 400  # <-- CHANGED: unified shape
 
     incoming_message = (data.get("message") or "").strip()  # trim for guardrail + DTO min_length
     model = data.get("model", "gpt-3.5-turbo")
 
     if len(incoming_message) > 4000:  # preserve 413 semantics
-        return jsonify({"error": "Message too large"}), 413
+        raise RequestEntityTooLarge(description="Message too large")  # <-- CHANGED: raise HTTPException so global handler shapes JSON
 
     try:
         req = ChatRequest(message=incoming_message, model=model)  # DTO validation
     except ValidationError as ve:
-        return jsonify({"error": ve.errors()}), 400  # concise validation response
+        # Return unified 400 with details list for FE mapping
+        payload = _error_payload("Validation error", 400)  # <-- CHANGED: unified shape
+        payload["details"] = ve.errors()                   # <-- CHANGED: include Pydantic errors
+        return jsonify(payload), 400
 
     messages = [
         {"role": "system", "content": "You are a helpful assistant."},  # system prompt unchanged
@@ -176,8 +188,8 @@ def chat():
                 "openai.circuit_open",
                 extra={"event": "breaker.open", "request_id": getattr(g, "request_id", None)},
             )
-            return jsonify({"error": "Service temporarily unavailable"}), 503
-        # Otherwise generic 500 with previous error body shape
+            return jsonify(_error_payload("Service temporarily unavailable", 503)), 503  # <-- CHANGED: unified shape
+        # Otherwise generic 500 with unified error body
         current_app.logger.error(
             "openai.chat.error",
             exc_info=True,
@@ -187,9 +199,9 @@ def chat():
                 "model": req.model,
             },
         )
-        return jsonify({"error": str(exc)}), 500
+        return jsonify(_error_payload(str(exc), 500)), 500  # <-- CHANGED: unified shape
     except Exception as e:
-        # Log exception with request_id and return prior error shape
+        # Log exception with request_id and return unified error shape
         current_app.logger.error(
             "openai.chat.error",
             exc_info=True,
@@ -199,7 +211,7 @@ def chat():
                 "model": req.model,
             },
         )
-        return jsonify({"error": str(e)}), 500
+        return jsonify(_error_payload(str(e), 500)), 500  # <-- CHANGED: unified shape
 
 
 @app.route("/api/chat/stream", methods=["POST"])
@@ -210,18 +222,20 @@ def chat_stream():
     """
     data = request.get_json(silent=True)
     if not data or "message" not in data:  # preserve original 400 for missing 'message'
-        return jsonify({"error": "Missing JSON body or 'message' field"}), 400
+        return jsonify(_error_payload("Missing JSON body or 'message' field", 400)), 400  # <-- CHANGED: unified shape
 
     incoming_message = (data.get("message") or "").strip()
     model = data.get("model", "gpt-3.5-turbo")
 
     if len(incoming_message) > 4000:
-        return jsonify({"error": "Message too large"}), 413
+        raise RequestEntityTooLarge(description="Message too large")  # <-- CHANGED: raise HTTPException so global handler shapes JSON
 
     try:
         req = ChatRequest(message=incoming_message, model=model)  # DTO validation
     except ValidationError as ve:
-        return jsonify({"error": ve.errors()}), 400
+        payload = _error_payload("Validation error", 400)  # <-- CHANGED: unified shape
+        payload["details"] = ve.errors()                   # <-- CHANGED: include Pydantic errors
+        return jsonify(payload), 400
 
     # Log stream start for correlation
     current_app.logger.info(
@@ -241,9 +255,10 @@ def chat_stream():
     @stream_with_context  # keep Flask ctx during generator
     def generate():
         import json
+        rid = getattr(g, "request_id", None)  # <-- ADDED: capture once to reuse in frames
         try:
             # Emit an initial event with the request_id for client correlation
-            init_payload = {"request_id": getattr(g, "request_id", None)}
+            init_payload = {"request_id": rid}
             yield f"data: {json.dumps(init_payload)}\n\n"  # initial SSE message
 
             # Stream tokens
@@ -259,7 +274,7 @@ def chat_stream():
                 "openai.chat.stream.complete",
                 extra={
                     "event": "openai.chat.stream.complete",
-                    "request_id": getattr(g, "request_id", None),
+                    "request_id": rid,
                     "model": req.model,
                     "prompt_tokens": None,
                     "completion_tokens": None,
@@ -273,11 +288,12 @@ def chat_stream():
                     "openai.circuit_open",
                     extra={
                         "event": "breaker.open",
-                        "request_id": getattr(g, "request_id", None),
+                        "request_id": rid,
                         "model": req.model,
                     },
                 )
-                yield f"data: {json.dumps({'error': 'Service temporarily unavailable', 'done': True})}\n\n"
+                # <-- CHANGED: include unified fields in SSE error frame
+                yield f"data: {json.dumps({'error': 'Service temporarily unavailable', 'code': 503, 'request_id': rid, 'done': True})}\n\n"
                 return
             # Other runtime errors → log and emit terminal error frame
             current_app.logger.error(
@@ -285,11 +301,12 @@ def chat_stream():
                 exc_info=True,
                 extra={
                     "event": "openai.chat.stream.error",
-                    "request_id": getattr(g, "request_id", None),
+                    "request_id": rid,
                     "model": req.model,
                 },
             )
-            yield f"data: {json.dumps({'error': str(exc), 'done': True})}\n\n"
+            # <-- CHANGED: include code 500 + request_id
+            yield f"data: {json.dumps({'error': str(exc), 'code': 500, 'request_id': rid, 'done': True})}\n\n"
         except Exception as e:
             # Generic exceptions → log and emit terminal error frame
             current_app.logger.error(
@@ -297,11 +314,12 @@ def chat_stream():
                 exc_info=True,
                 extra={
                     "event": "openai.chat.stream.error",
-                    "request_id": getattr(g, "request_id", None),
+                    "request_id": rid,
                     "model": req.model,
                 },
             )
-            yield f"data: {json.dumps({'error': str(e), 'done': True})}\n\n"
+            # <-- CHANGED: include code 500 + request_id
+            yield f"data: {json.dumps({'error': str(e), 'code': 500, 'request_id': rid, 'done': True})}\n\n"
 
     # Stream-friendly headers (avoid proxy buffering)
     headers = {

@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from typing import Literal, Optional
+from typing import Literal, Optional, List  # <-- CHANGED: add List for details
 
 from pydantic import BaseModel, Field
 
@@ -23,3 +23,4 @@ class ErrorResponse(BaseModel):
     error: str
     code: int
     request_id: Optional[str] = None
+    details: Optional[List[dict]] = None  # <-- CHANGED: optional validation details for 400s
