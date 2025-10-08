@@ -1,3 +1,4 @@
+// client/src/components/ChatBot.jsx
 import { useEffect, useRef, useState, useMemo } from 'react'
 import '../ChatBot.css'
 
@@ -37,7 +38,7 @@ function ChatBot() {
     const saved = localStorage.getItem('askFlaskStream')
     return saved ? saved === 'true' : true
   })
-  const [rateRemaining, setRateRemaining] = useState(null)              // <-- ADDED: track X-RateLimit-Remaining
+  const [rateRemaining, setRateRemaining] = useState(null)              // track X-RateLimit-Remaining (JSON + SSE)  // inline-change
 
   const chatEndRef = useRef(null)
   const chatWindowRef = useRef(null)                                    // scope Prism highlighting
@@ -61,6 +62,20 @@ function ChatBot() {
 
   const scrollToBottom = () => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }
+
+  // <-- ADDED: centralized error formatter for unified ErrorResponse shape
+  const formatError = (err) => {
+    if (!err || typeof err !== 'object') return 'Unexpected error.'
+    const code = err.code ?? 500
+    const requestId = err.request_id ? ` (Ref: ${err.request_id})` : ''
+    switch (code) {
+      case 400: return `Please check your input.${requestId}`
+      case 413: return `Message is too long (max 4000 chars).${requestId}`
+      case 429: return `Too many requests. Try again soon.${requestId}`
+      case 503: return `Service temporarily unavailable. Please retry.${requestId}`
+      default: return `Unexpected error.${requestId}`
+    }
   }
 
   const sendMessage = async () => {
@@ -93,17 +108,18 @@ function ChatBot() {
       })
 
       // --- Rate limit header handling (JSON path) ---
-      const rl = res.headers.get('X-RateLimit-Remaining')               // <-- ADDED: read header
-      if (rl !== null) setRateRemaining(rl)                              // <-- ADDED: update state
+      const rl = res.headers.get('X-RateLimit-Remaining')               // read header
+      if (rl !== null) setRateRemaining(rl)                              // update state
 
       const data = await res.json()
 
-      const botContent =
-        typeof data?.reply === 'string'
-          ? data.reply
-          : data?.error
-          ? `Error: ${data.error}`
-          : 'Something went wrong!'
+      let botContent = ''
+      if (res.ok && typeof data?.reply === 'string') {
+        botContent = data.reply
+      } else {
+        // <-- CHANGED: parse unified ErrorResponse {error, code, request_id}
+        botContent = `Error: ${formatError(data)}`
+      }
 
       const botMessage = {
         role: 'assistant',
@@ -140,8 +156,8 @@ function ChatBot() {
       })
 
       // --- Rate limit header handling (SSE path) ---
-      const rl = res.headers.get('X-RateLimit-Remaining')               // <-- ADDED: read header before streaming
-      if (rl !== null) setRateRemaining(rl)                              // <-- ADDED: update state
+      const rl = res.headers.get('X-RateLimit-Remaining')               // read header before streaming
+      if (rl !== null) setRateRemaining(rl)                              // update state
 
       if (!res.ok || !res.body) {
         // If streaming not available or failed, gracefully fall back
@@ -197,13 +213,13 @@ function ChatBot() {
               })
             }
             if (evt.error) {
-              // surface server-side stream error text
+              // <-- CHANGED: show friendly message using unified SSE error fields
               setMessages((prev) => {
                 const next = [...prev]
                 const idx = startIndex
                 next[idx] = {
                   ...next[idx],
-                  content: `Error: ${evt.error}`
+                  content: `Error: ${formatError(evt)}`
                 }
                 return next
               })
@@ -272,7 +288,7 @@ function ChatBot() {
             <span className="copy-default">Copy</span>
             <span className="copy-done">Copied!</span>
           </button>
-          <pre className={className}> {/* ✅ CHANGED: pass language class to <pre> so Prism theme rules apply */}
+          <pre className={className}> {/* pass language class to <pre> so Prism theme rules apply */}
             <code className={className} {...props}>
               {rawCode}
             </code>
@@ -291,7 +307,7 @@ function ChatBot() {
       <div className="chat-header">
         <h2>Ask-Flask 🤖</h2>
         <div className="chat-controls">
-          {/* <-- ADDED: small pill showing remaining requests in current window */}
+          {/* small pill showing remaining requests in current window */}
           <div className="rate-pill" title="Requests remaining this window">
             Rate limit: {rateRemaining ?? '—'} left
           </div>
