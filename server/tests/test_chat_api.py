@@ -98,7 +98,10 @@ def test_chat_missing_body(monkeypatch):
         res = c.post("/api/chat", json={})
         assert res.status_code == 400  # per contract for missing message
         assert res.is_json
-        assert "error" in res.get_json()
+        body = res.get_json()
+        assert body.get("error")
+        assert body.get("code") == 400          # <-- CHANGED: unified shape asserted
+        assert body.get("request_id") is not None  # <-- CHANGED
 
 
 def test_chat_empty_message(monkeypatch):
@@ -111,7 +114,11 @@ def test_chat_empty_message(monkeypatch):
         assert res.status_code == 400
         assert res.is_json
         body = res.get_json()
-        assert "error" in body
+        assert body.get("error")
+        assert body.get("code") == 400          # <-- CHANGED
+        assert body.get("request_id") is not None
+        # Optional details list for DTO errors (may exist)
+        assert "details" in body or True        # <-- CHANGED: tolerate absence in some paths
 
 
 def test_chat_invalid_model(monkeypatch):
@@ -124,7 +131,9 @@ def test_chat_invalid_model(monkeypatch):
         assert res.status_code == 400
         assert res.is_json
         body = res.get_json()
-        assert "error" in body
+        assert body.get("error")
+        assert body.get("code") == 400          # <-- CHANGED
+        assert body.get("request_id") is not None
 
 
 def test_chat_payload_too_large(monkeypatch):
@@ -136,7 +145,10 @@ def test_chat_payload_too_large(monkeypatch):
         res = c.post("/api/chat", json={"message": huge, "model": "gpt-4"})
         assert res.status_code == 413
         assert res.is_json
-        assert "error" in res.get_json()
+        body = res.get_json()
+        assert body.get("error")
+        assert body.get("code") == 413          # <-- CHANGED
+        assert body.get("request_id") is not None
 
 
 def test_chat_openai_error(monkeypatch):
@@ -151,11 +163,13 @@ def test_chat_openai_error(monkeypatch):
     app = app_mod.app
     with app.test_client() as c:
         res = c.post("/api/chat", json={"message": "fail please", "model": "gpt-4"})
-        # Your error handler should shape this as a 500 with {error}
+        # Your error handler should shape this as a 500 with unified body
         assert res.status_code >= 500
         assert res.is_json
         body = res.get_json()
-        assert "error" in body
+        assert body.get("error")
+        assert body.get("code") >= 500          # <-- CHANGED
+        assert body.get("request_id") is not None
 
 
 def test_chat_stream_sse_headers_and_tokens(monkeypatch):
@@ -186,7 +200,10 @@ def test_chat_stream_payload_too_large(monkeypatch):
         assert res.status_code == 413
         # Even for SSE endpoint, oversize should short-circuit to JSON 413 error per contract
         assert res.is_json
-        assert "error" in res.get_json()
+        body = res.get_json()
+        assert body.get("error")
+        assert body.get("code") == 413          # <-- CHANGED
+        assert body.get("request_id") is not None
 
 
 def test_circuit_open_non_stream(monkeypatch):
@@ -204,6 +221,8 @@ def test_circuit_open_non_stream(monkeypatch):
         assert res.is_json
         body = res.get_json()
         assert body.get("error")
+        assert body.get("code") == 503          # <-- CHANGED
+        assert body.get("request_id") is not None
 
 
 def test_circuit_open_stream(monkeypatch):
@@ -221,6 +240,8 @@ def test_circuit_open_stream(monkeypatch):
         data = res.data.decode("utf-8")
         assert "Service temporarily unavailable" in data
         assert '"done": true' in data
+        assert '"code": 503' in data                 # <-- CHANGED: unified SSE error fields
+        assert '"request_id":' in data               # <-- CHANGED
 
 
 def test_rate_limit_headers_present(monkeypatch):
