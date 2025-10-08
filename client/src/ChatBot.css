@@ -1,14 +1,40 @@
 /* client/src/ChatBot.css */
+/* --- Modern dark, glassy chat UI. Functionality unchanged. --- */
 
-/* Existing styles kept; minimal changes to let Prism theme control background */
+/* ========== Container & Layout ========== */
+.chatbot-container {
+  --surface: rgba(10, 15, 25, 0.65);
+  --surface-strong: rgba(15, 22, 36, 0.85);
+  --border: rgba(148, 163, 184, 0.20);
+  --ring: #60a5fa;
+  --text: #e2e8f0;
+  --muted: #94a3b8;
 
+  max-width: 900px;
+  width: 92%;
+  margin: 24px auto; /* center on page */
+  padding: 16px 16px 12px;
+  background: linear-gradient(180deg, var(--surface), var(--surface-strong)); /* <-- ADDED: glassy panel */
+  border: 1px solid var(--border); /* <-- ADDED: subtle border */
+  border-radius: 16px; /* <-- ADDED: softer radius */
+  box-shadow:
+    0 10px 30px rgba(0,0,0,0.35),
+    inset 0 1px 0 rgba(255,255,255,0.03); /* <-- ADDED: depth */
+  backdrop-filter: blur(10px); /* <-- ADDED: glass blur (supported) */
+}
+
+/* ========== Header ========== */
 .chat-header {
+  position: sticky; /* <-- ADDED: keep tools visible when scrolling */
+  top: 0;
+  z-index: 2;
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding-bottom: 0.5rem;
-  border-bottom: 1px solid #334155;
   margin-bottom: 0.5rem;
+  border-bottom: 1px solid #334155;
+  background: linear-gradient(180deg, rgba(2,6,23,0.6), rgba(2,6,23,0)); /* <-- ADDED */
   color: white;
 }
 
@@ -18,21 +44,29 @@
   align-items: center; /* align toggle with controls */
 }
 
+/* Selects & buttons in the header */
 .chat-controls select,
 .chat-controls button {
-  background: #1e293b;
+  background: #0f172a; /* <-- CHANGED: slightly darker surface */
   color: white;
   border: 1px solid #475569;
-  padding: 0.4rem 0.75rem;
-  border-radius: 6px;
+  padding: 0.45rem 0.75rem; /* <-- CHANGED: a hair taller */
+  border-radius: 10px;      /* <-- CHANGED: friendlier */
   cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease, transform 60ms ease; /* <-- ADDED */
 }
 
 .chat-controls button:hover,
 .chat-controls select:hover {
-  background: #334155;
+  background: #1e293b;
+  border-color: #64748b;
 }
 
+.chat-controls button:active {
+  transform: translateY(1px); /* <-- ADDED: subtle press */
+}
+
+/* Stream toggle (keep markup; style native checkbox) */
 .stream-toggle {
   display: inline-flex;
   gap: 0.35rem;
@@ -41,53 +75,216 @@
   color: #e2e8f0;
   user-select: none;
 }
+.stream-toggle input[type="checkbox"] {
+  width: 36px; height: 22px; /* <-- ADDED: switch-like size */
+  appearance: none;
+  background: #0b1220;
+  border: 1px solid #334155;
+  border-radius: 999px;
+  position: relative;
+  outline: none;
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease;
+}
+.stream-toggle input[type="checkbox"]::after {
+  content: "";
+  position: absolute;
+  top: 50%; left: 3px;
+  width: 16px; height: 16px;
+  transform: translateY(-50%);
+  background: #e2e8f0;
+  border-radius: 50%;
+  transition: left 160ms ease, background 160ms ease;
+}
+.stream-toggle input[type="checkbox"]:checked {
+  background: #0b2a4a;
+  border-color: #2563eb;
+}
+.stream-toggle input[type="checkbox"]:checked::after {
+  left: 17px;
+  background: #93c5fd;
+}
 
-/* ---- ADDED: Rate limit pill ---- */
+/* ---- Rate limit pill ---- */
 .rate-pill {
   background: rgba(15, 23, 42, 0.8); /* slate-900-ish */
   border: 1px solid #334155;
   color: #e2e8f0;
   font-size: 0.8rem;
-  padding: 0.2rem 0.5rem;
+  padding: 0.25rem 0.6rem; /* <-- CHANGED: slightly larger */
   border-radius: 999px;
   line-height: 1;
 }
 
-.message-content {
-  margin-bottom: 0.25rem;
+/* ========== Chat Window ========== */
+.chat-window {
+  display: flex;           /* <-- ADDED: vertical list */
+  flex-direction: column;
+  gap: 12px;               /* <-- ADDED: space between bubbles */
+  padding: 10px 8px 4px 8px;
+  height: min(68vh, 720px); /* <-- ADDED: responsive height */
+  overflow-y: auto;
+  scroll-behavior: smooth;
+  background: linear-gradient(180deg, rgba(2,6,23,0.35), rgba(2,6,23,0)); /* <-- ADDED */
+  border-radius: 12px;
 }
 
+/* Fancy scrollbar (supported browsers) */
+.chat-window::-webkit-scrollbar { width: 10px; }
+.chat-window::-webkit-scrollbar-track { background: transparent; }
+.chat-window::-webkit-scrollbar-thumb {
+  background: #1f2a3a;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+.chat-window:hover::-webkit-scrollbar-thumb { background: #2b3a52; }
+
+/* ========== Messages ========== */
+.message {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  max-width: 82%;
+}
+
+.message.bot { /* assistant left */
+  justify-content: flex-start;
+}
+.message.user { /* user right */
+  margin-left: auto;       /* <-- ADDED: push to right side */
+  justify-content: flex-end;
+}
+
+/* Bubbles */
+.message .message-content {
+  margin-bottom: 0.25rem;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid #273244;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.04) inset;
+}
+
+.message.bot .message-content {
+  background: rgba(23, 30, 46, 0.9);
+  color: var(--text);
+}
+
+.message.user .message-content {
+  background: linear-gradient(180deg, #0b3b7a, #0a2f61); /* <-- ADDED: calm blue */
+  border-color: #1e3a8a;
+  color: #dbeafe;
+}
+
+/* Avatars via pseudo-element (no markup changes) */
+.message.bot::before,
+.message.user::after {
+  content: "";
+  flex: 0 0 28px;
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  border: 1px solid #334155;
+  background: #0b1220;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.05) inset;
+}
+.message.bot::before {
+  /* Simple robot icon circle using data URI SVG */ /* <-- ADDED */
+  background:
+    radial-gradient(circle at 50% 45%, #93c5fd 0 6px, transparent 7px),
+    linear-gradient(#93c5fd, #93c5fd) no-repeat 6px 16px / 16px 2px,
+    #0b1220;
+}
+.message.user::after {
+  /* User dot + ring */ /* <-- ADDED */
+  background:
+    radial-gradient(circle at 50% 50%, #38bdf8 0 6px, transparent 7px),
+    #0b1220;
+}
+
+/* Timestamps */
 .timestamp {
   font-size: 0.75rem;
   color: #94a3b8;
-  text-align: right;
   margin-top: 2px;
 }
+.message.user .timestamp { text-align: left; }
+.message.bot .timestamp { text-align: right; }
 
-/* Markdown typography */
+/* Typing indicator bubble */
+.message.bot.typing-indicator {
+  background: rgba(23, 30, 46, 0.9);
+  border: 1px solid #273244;
+  border-radius: 12px;
+  padding: 10px 12px;
+  width: fit-content;
+}
+.message.bot.typing-indicator .dot {
+  display: inline-block;
+  width: 6px; height: 6px;
+  margin-right: 4px;
+  border-radius: 50%;
+  background: #cbd5e1;
+  animation: pulse 1.2s infinite ease-in-out;
+}
+.message.bot.typing-indicator .dot:nth-child(2) { animation-delay: 0.15s; }
+.message.bot.typing-indicator .dot:nth-child(3) { animation-delay: 0.3s; }
+@keyframes pulse {
+  0%, 100% { opacity: 0.25; transform: translateY(0); }
+  50% { opacity: 1; transform: translateY(-2px); }
+}
+
+/* ========== Input Bar ========== */
+.input-container {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 12px;
+  padding: 8px 8px 8px 12px;
+  background: rgba(10, 15, 25, 0.7); /* <-- ADDED: pill bg */
+  border: 1px solid #334155;
+  border-radius: 999px;             /* <-- ADDED: full pill */
+}
+
+.input-container input {
+  flex: 1;
+  background: transparent; /* <-- CHANGED: clear inside pill */
+  border: none;
+  color: var(--text);
+  font-size: 0.98rem;
+  outline: none;
+}
+.input-container input::placeholder { color: #7c8da8; }
+
+.input-container button {
+  background: linear-gradient(180deg, #2563eb, #1d4ed8); /* <-- ADDED: primary */
+  color: white;
+  border: 1px solid #1e40af;
+  border-radius: 999px;
+  padding: 0.55rem 0.95rem;
+  font-weight: 600;
+  transition: transform 60ms ease, filter 140ms ease, background 160ms ease;
+}
+.input-container button:hover { filter: brightness(1.05); }
+.input-container button:active { transform: translateY(1px); }
+
+/* Focus ring for accessibility */
+.input-container:focus-within {
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.35); /* <-- ADDED: ring */
+}
+
+/* ========== Markdown & Code ========== */
 .markdown {
-  line-height: 1.6;
+  line-height: 1.65;
   color: #e2e8f0;
   word-wrap: break-word;
 }
 
-.markdown p {
-  margin: 0.4rem 0;
-}
-
-.markdown a {
-  color: #60a5fa;
-  text-decoration: underline;
-}
+.markdown p { margin: 0.45rem 0; }
+.markdown a { color: #60a5fa; text-decoration: underline; }
 
 .markdown ul,
-.markdown ol {
-  margin: 0.5rem 0 0.5rem 1.25rem;
-}
-
-.markdown li + li {
-  margin-top: 0.25rem;
-}
+.markdown ol { margin: 0.5rem 0 0.5rem 1.25rem; }
+.markdown li + li { margin-top: 0.25rem; }
 
 .markdown blockquote {
   border-left: 3px solid #475569;
@@ -105,13 +302,11 @@
   margin: 0.6rem 0;
   overflow: auto;
 }
-
 .markdown th,
 .markdown td {
   border: 1px solid #334155;
   padding: 0.4rem 0.5rem;
 }
-
 .markdown th {
   background: rgba(30, 41, 59, 0.8);
   color: #e5e7eb;
@@ -124,52 +319,43 @@
   border: 1px solid #334155;
   padding: 0.1rem 0.3rem;
   border-radius: 4px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
-    "Courier New", monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
   font-size: 0.95em;
 }
 
 /* Fenced code blocks with a copy button */
-.codeblock {
-  position: relative;
-  margin: 0.6rem 0;
-}
-
+.codeblock { position: relative; margin: 0.6rem 0; }
 .codeblock pre {
   margin: 0;
   overflow: auto;
   border: 1px solid #334155;
-  border-radius: 6px;
-  /* background removed to let Prism theme control it */ /* <-- CHANGED */
+  border-radius: 8px;         /* <-- CHANGED: slightly larger */
+  /* background removed to let Prism theme control it */
 }
 
 /* Copy button */
 .copy-btn {
   position: absolute;
-  top: 0.4rem;
-  right: 0.4rem;
+  top: 0.45rem;
+  right: 0.45rem;
   background: #0f172a;
   color: #e2e8f0;
   border: 1px solid #334155;
-  border-radius: 6px;
-  padding: 0.25rem 0.5rem;
+  border-radius: 8px;
+  padding: 0.28rem 0.55rem;
   font-size: 0.8rem;
   cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease;
 }
-
-.copy-btn:hover {
-  background: #1e293b;
-}
+.copy-btn:hover { background: #1e293b; }
 
 /* Copy button “Copied!” feedback */
-.copy-btn .copy-done {
-  display: none;
-}
+.copy-btn .copy-done { display: none; }
+.copy-btn[data-copied="true"] .copy-default { display: none; }
+.copy-btn[data-copied="true"] .copy-done { display: inline; }
 
-.copy-btn[data-copied="true"] .copy-default {
-  display: none;
-}
-
-.copy-btn[data-copied="true"] .copy-done {
-  display: inline;
+/* ========== Reduced Motion Respect ========== */
+@media (prefers-reduced-motion: reduce) {
+  .chat-window { scroll-behavior: auto; }
+  .message.bot.typing-indicator .dot { animation: none; }
 }
