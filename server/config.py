@@ -26,8 +26,8 @@ metadata = MetaData(naming_convention=naming_convention)
 app = Flask(
     __name__,
     static_url_path='',                                      # serve assets at root
-    static_folder=os.path.join('..', 'client', 'dist'),      
-    template_folder=os.path.join('..', 'client', 'dist'),    
+    static_folder=os.path.join('..', 'client', 'dist'),
+    template_folder=os.path.join('..', 'client', 'dist'),
 )
 
 app.secret_key = os.getenv("FLASK_SECRET_KEY")
