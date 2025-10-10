@@ -13,8 +13,8 @@ from typing import Iterable, List, Optional, Tuple, Literal, Dict, Any
 from sqlalchemy import func, select, desc, case, literal_column
 from sqlalchemy.orm import Session as OrmSession
 
-from .config import db
-from .models import Session as ChatSession, Message
+from ..config import db
+from ..models import Session as ChatSession, Message
 
 
 def create_session(title: Optional[str] = None) -> ChatSession:
