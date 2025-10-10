@@ -1,5 +1,5 @@
 // client/src/components/SessionSidebar.jsx
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 
 /**
  * Minimal Session sidebar (LocalStorage-first).
@@ -16,9 +16,19 @@ import { useEffect, useMemo, useState } from 'react'
 export default function SessionSidebar({ sessionId, onSelectSession }) {
   const [sessions, setSessions] = useState([])
 
-  // LocalStorage helpers (namespaced) // <-- ADDED
+  // LocalStorage keys // (unchanged)
   const LS_SESSIONS = 'askFlaskSessions'
   const LS_SESSION_ID = 'askFlaskSessionId'
+
+  // NEW: robust UUID generator with fallback // <-- FIX: ensure we can always create a non-null id
+  const genId = useCallback(() => {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID()
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+      const r = (Math.random() * 16) | 0
+      const v = c === 'x' ? r : (r & 0x3) | 0x8
+      return v.toString(16)
+    })
+  }, [])
 
   const readSessions = () => {
     const raw = localStorage.getItem(LS_SESSIONS)
@@ -26,26 +36,37 @@ export default function SessionSidebar({ sessionId, onSelectSession }) {
   }
   const writeSessions = (list) => localStorage.setItem(LS_SESSIONS, JSON.stringify(list))
 
-  // Init from LocalStorage once. // <-- ADDED
+  // Initialize from LocalStorage, but guarantee a valid non-null session id. // <-- FIX: prevent null id seeding
   useEffect(() => {
     const list = readSessions()
     if (list.length === 0) {
-      const id = localStorage.getItem(LS_SESSION_ID)
+      // Ensure we have a current session id persisted // <-- FIX
+      let id = localStorage.getItem(LS_SESSION_ID)
+      if (!id) {
+        id = genId() // <-- FIX
+        localStorage.setItem(LS_SESSION_ID, id) // <-- FIX
+      }
       const seed = [{ id, title: 'New session', created_at: new Date().toISOString() }]
       setSessions(seed)
       writeSessions(seed)
+      // Inform parent if it doesn't already have a session selected // <-- FIX (defensive)
+      onSelectSession?.(id)
     } else {
-      setSessions(list)
+      // Filter out any corrupted entries lacking an id // <-- FIX
+      const sanitized = list.filter(s => !!s?.id)
+      setSessions(sanitized)
+      if (sanitized.length !== list.length) writeSessions(sanitized)
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [genId])
 
   const handleCreate = () => {
-    const id = (crypto?.randomUUID?.() || Math.random().toString(36).slice(2) + Date.now().toString(36))
+    const id = genId() // <-- FIX: use robust generator
     const entry = { id, title: 'New session', created_at: new Date().toISOString() }
     const next = [entry, ...sessions]
     setSessions(next)
     writeSessions(next)
+    localStorage.setItem(LS_SESSION_ID, id) // <-- FIX: keep LS in sync
     onSelectSession?.(id)
   }
 
@@ -53,10 +74,10 @@ export default function SessionSidebar({ sessionId, onSelectSession }) {
     const next = sessions.filter(s => s.id !== id)
     setSessions(next)
     writeSessions(next)
-    // If deleting current session, pick another or create a fresh one. // <-- ADDED
     if (id === sessionId) {
       const replacement = next[0]?.id
       if (replacement) {
+        localStorage.setItem(LS_SESSION_ID, replacement) // <-- FIX: sync LS on delete
         onSelectSession?.(replacement)
       } else {
         handleCreate()
@@ -73,7 +94,6 @@ export default function SessionSidebar({ sessionId, onSelectSession }) {
   }
 
   const disabled = !sessionId
-
   const exportDisabledTooltip = 'Export API will be wired next (server routes pending)'
 
   return (
@@ -84,7 +104,7 @@ export default function SessionSidebar({ sessionId, onSelectSession }) {
       </div>
       <ul style={{ listStyle: 'none', padding: 0, margin: 0, maxHeight: 360, overflowY: 'auto' }}>
         {sessions.map(s => (
-          <li key={s.id} style={{
+          <li key={s.id || Math.random()} style={{ // <-- FIX: guard key if something is malformed
             display: 'grid',
             gridTemplateColumns: '1fr auto',
             alignItems: 'center',
@@ -94,13 +114,15 @@ export default function SessionSidebar({ sessionId, onSelectSession }) {
             background: s.id === sessionId ? 'rgba(255,255,255,0.06)' : 'transparent',
             cursor: 'pointer'
           }}>
-            <div onClick={() => onSelectSession?.(s.id)}>
+            <div onClick={() => s.id && onSelectSession?.(s.id)}> {/* <-- FIX: don't pass null */}
               <div style={{ fontSize: 13, fontWeight: 600 }}>{s.title || 'Untitled'}</div>
-              <div style={{ fontSize: 11, opacity: 0.7 }}>{s.id.slice(0, 8)}…</div>
+              <div style={{ fontSize: 11, opacity: 0.7 }}>
+                {(s.id ? s.id.slice(0, 8) : 'new')}… {/* <-- FIX: null-safe slice */}
+              </div>
             </div>
             <div style={{ display: 'flex', gap: 6 }}>
-              <button onClick={() => handleRename(s.id)} title="Rename">✎</button>
-              <button onClick={() => handleDelete(s.id)} title="Delete">🗑</button>
+              <button onClick={() => s.id && handleRename(s.id)} title="Rename">✎</button> {/* <-- FIX: guard null */}
+              <button onClick={() => s.id && handleDelete(s.id)} title="Delete">🗑</button> {/* <-- FIX: guard null */}
             </div>
           </li>
         ))}
