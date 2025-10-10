@@ -32,7 +32,13 @@ if __package__ in (None, ""):  # <-- CHANGED: mode-aware imports for top-level l
     )
     from security import register_security_headers               # inline-change: absolute import
     from ratelimit import init_rate_limiter                      # inline-change: absolute import
-    from schemas import ChatRequest, ChatResponse, ErrorResponse # inline-change: absolute import
+    from schemas import (                                        # <-- CHANGED: import new DTOs
+        ChatRequest,
+        ChatResponse,
+        ErrorResponse,
+        CreateSessionRequest,    # NEW
+        AppendMessageRequest,    # NEW
+    )
 
     # --- Robust import of OpenAIService with fallback shim -------------------
     try:
@@ -40,6 +46,23 @@ if __package__ in (None, ""):  # <-- CHANGED: mode-aware imports for top-level l
         OpenAIService = getattr(_openai_client_mod, "OpenAIService", None)  # inline-change
     except Exception:  # noqa: BLE001
         OpenAIService = None  # will define a local shim below                # inline-change
+
+    # --- Sessions service & models (absolute imports in top-level mode) -----
+    try:
+        from services.session_store import (                       # <-- ADDED: sessions service imports
+            create_session,
+            list_sessions,
+            get_session_messages,
+            append_message,
+            delete_session as delete_session_row,
+            export_session,
+        )
+        from models import Session as ChatSession                  # <-- ADDED: model for existence checks
+        from config import db                                      # <-- ADDED: access db.session.get
+    except Exception:  # noqa: BLE001
+        create_session = list_sessions = get_session_messages = append_message = delete_session_row = export_session = None  # type: ignore
+        ChatSession = None  # type: ignore
+        db = None  # type: ignore
 else:  # <-- CHANGED: mode-aware imports for package launch (server.app:app)
     from .config import app  # preferred in package context
     from .observability import (
@@ -50,7 +73,13 @@ else:  # <-- CHANGED: mode-aware imports for package launch (server.app:app)
     )
     from .security import register_security_headers
     from .ratelimit import init_rate_limiter
-    from .schemas import ChatRequest, ChatResponse, ErrorResponse
+    from .schemas import (                                         # <-- CHANGED: import new DTOs
+        ChatRequest,
+        ChatResponse,
+        ErrorResponse,
+        CreateSessionRequest,    # NEW
+        AppendMessageRequest,    # NEW
+    )
 
     # --- Robust import of OpenAIService with fallback shim -------------------
     try:
@@ -58,6 +87,23 @@ else:  # <-- CHANGED: mode-aware imports for package launch (server.app:app)
         OpenAIService = getattr(_openai_client_mod, "OpenAIService", None)  # inline-change
     except Exception:  # noqa: BLE001
         OpenAIService = None  # will define a local shim below                # inline-change
+
+    # --- Sessions service & models (package imports) ------------------------
+    try:
+        from .services.session_store import (                        # <-- ADDED: sessions service imports
+            create_session,
+            list_sessions,
+            get_session_messages,
+            append_message,
+            delete_session as delete_session_row,
+            export_session,
+        )
+        from .models import Session as ChatSession                   # <-- ADDED: model for existence checks
+        from .config import db                                       # <-- ADDED: access db.session.get
+    except Exception:  # noqa: BLE001
+        create_session = list_sessions = get_session_messages = append_message = delete_session_row = export_session = None  # type: ignore
+        ChatSession = None  # type: ignore
+        db = None  # type: ignore
 # ------------------------------------------------------------------------------------------------
 
 load_dotenv()
@@ -153,6 +199,7 @@ def chat():
     """
     Non-streaming chat endpoint.
     Uses Pydantic DTOs for validation and OpenAIService for calls.
+    Optionally appends messages to a session when a valid session_id is provided.
     """
     data = request.get_json(silent=True)
     if not data or "message" not in data:  # preserve original 400 for missing 'message'
@@ -165,7 +212,7 @@ def chat():
         raise RequestEntityTooLarge(description="Message too large")  # <-- CHANGED: raise HTTPException so global handler shapes JSON
 
     try:
-        req = ChatRequest(message=incoming_message, model=model)  # DTO validation
+        req = ChatRequest(message=incoming_message, model=model, session_id=data.get("session_id"))  # <-- CHANGED: support optional session_id
     except ValidationError as ve:
         # Return unified 400 with details list for FE mapping
         payload = _error_payload("Validation error", 400)  # <-- CHANGED: unified shape
@@ -177,8 +224,25 @@ def chat():
         {"role": "user", "content": req.message},
     ]
 
+    # --- NEW: persist user/assistant messages if session exists -------------
+    session_exists = False
+    if req.session_id and db is not None and ChatSession is not None:
+        try:
+            session_exists = db.session.get(ChatSession, req.session_id) is not None  # <-- ADDED: existence check
+            if session_exists:
+                append_message(req.session_id, "user", req.message)  # <-- ADDED: persist user message
+        except Exception:
+            session_exists = False  # swallow persistence errors to not affect chat
+
     try:
         reply_text = openai_service.complete(model=req.model, messages=messages)
+        # If we have a valid session, store assistant reply as well
+        if session_exists:
+            try:
+                append_message(req.session_id, "assistant", reply_text)  # <-- ADDED: persist assistant reply
+            except Exception:
+                pass
+
         resp = ChatResponse(reply=reply_text)
         return jsonify(resp.model_dump())
     except RuntimeError as exc:
@@ -219,6 +283,7 @@ def chat_stream():
     """
     Stream assistant tokens via Server-Sent Events (SSE).
     Validates via DTOs and streams via OpenAIService.
+    Optionally appends messages to a session when a valid session_id is provided.
     """
     data = request.get_json(silent=True)
     if not data or "message" not in data:  # preserve original 400 for missing 'message'
@@ -231,7 +296,7 @@ def chat_stream():
         raise RequestEntityTooLarge(description="Message too large")  # <-- CHANGED: raise HTTPException so global handler shapes JSON
 
     try:
-        req = ChatRequest(message=incoming_message, model=model)  # DTO validation
+        req = ChatRequest(message=incoming_message, model=model, session_id=data.get("session_id"))  # <-- CHANGED: support optional session_id
     except ValidationError as ve:
         payload = _error_payload("Validation error", 400)  # <-- CHANGED: unified shape
         payload["details"] = ve.errors()                   # <-- CHANGED: include Pydantic errors
@@ -256,6 +321,18 @@ def chat_stream():
     def generate():
         import json
         rid = getattr(g, "request_id", None)  # <-- ADDED: capture once to reuse in frames
+        assembled = []  # <-- ADDED: collect streamed tokens for DB append at end
+        session_exists = False
+
+        # If a valid session is provided, persist the user message now
+        if req.session_id and db is not None and ChatSession is not None:
+            try:
+                session_exists = db.session.get(ChatSession, req.session_id) is not None  # <-- ADDED
+                if session_exists:
+                    append_message(req.session_id, "user", req.message)  # <-- ADDED
+            except Exception:
+                session_exists = False
+
         try:
             # Emit an initial event with the request_id for client correlation
             init_payload = {"request_id": rid}
@@ -263,11 +340,19 @@ def chat_stream():
 
             # Stream tokens
             for token in openai_service.stream(model=req.model, messages=messages):
+                assembled.append(token)  # <-- ADDED: capture for DB persistence
                 payload = {"token": token}
                 yield f"data: {json.dumps(payload)}\n\n"
 
             # Final done marker
             yield f"data: {json.dumps({'done': True})}\n\n"
+
+            # Persist assistant message at the end if session is valid
+            if session_exists:
+                try:
+                    append_message(req.session_id, "assistant", "".join(assembled))  # <-- ADDED
+                except Exception:
+                    pass
 
             # Log completion (usage typically unavailable in stream)
             current_app.logger.info(
@@ -328,6 +413,161 @@ def chat_stream():
         "Connection": "keep-alive",
     }
     return Response(generate(), mimetype="text/event-stream", headers=headers)
+# -------------------------------------------------------------------------
+
+# --------------------------- SESSIONS API ---------------------------------
+@app.route("/api/sessions", methods=["POST"])
+def create_session_route():
+    """Create a new chat session (optional title)."""
+    data = request.get_json(silent=True) or {}
+    try:
+        req = CreateSessionRequest(**data)  # <-- ADDED: DTO validation
+    except ValidationError as ve:
+        payload = _error_payload("Validation error", 400)
+        payload["details"] = ve.errors()
+        return jsonify(payload), 400
+
+    try:
+        s = create_session(title=req.title)  # type: ignore[arg-type]
+    except Exception as e:
+        current_app.logger.error("session.create.error", exc_info=True, extra={"event": "session.create", "title": req.title})
+        return jsonify(_error_payload(str(e), 500)), 500
+
+    current_app.logger.info("session.create", extra={"event": "session.create", "session_id": s.id, "title": s.title})
+    return jsonify({
+        "id": s.id,
+        "title": s.title,
+        "created_at": (s.created_at.isoformat() if getattr(s, "created_at", None) else None),
+        "updated_at": (s.updated_at.isoformat() if getattr(s, "updated_at", None) else None),
+    }), 200  # 200 is fine for creation here
+
+
+@app.route("/api/sessions", methods=["GET"])
+def list_sessions_route():
+    """List sessions with last activity."""
+    try:
+        rows = list_sessions()
+    except Exception as e:
+        current_app.logger.error("session.list.error", exc_info=True, extra={"event": "session.list"})
+        return jsonify(_error_payload(str(e), 500)), 500
+
+    def _fmt(r):
+        return {
+            "id": r["id"],
+            "title": r["title"],
+            "created_at": (r["created_at"].isoformat() if r.get("created_at") else None),
+            "last_activity": (r["last_activity"].isoformat() if r.get("last_activity") else None),
+        }
+
+    return jsonify([_fmt(r) for r in rows]), 200
+
+
+@app.route("/api/sessions/<session_id>", methods=["GET"])
+def get_session_route(session_id: str):
+    """Get messages for a session (ascending by created_at)."""
+    if db is None or ChatSession is None:
+        return jsonify(_error_payload("Sessions not available", 500)), 500
+
+    s = db.session.get(ChatSession, session_id)
+    if not s:
+        return jsonify(_error_payload("Session not found", 404)), 404
+
+    try:
+        msgs = get_session_messages(session_id)
+    except Exception as e:
+        current_app.logger.error("session.get.error", exc_info=True, extra={"event": "session.get", "session_id": session_id})
+        return jsonify(_error_payload(str(e), 500)), 500
+
+    # Ensure ISO dates for FE
+    for m in msgs:
+        if m.get("created_at"):
+            m["created_at"] = m["created_at"].isoformat()
+
+    return jsonify({
+        "id": s.id,
+        "title": s.title,
+        "created_at": (s.created_at.isoformat() if getattr(s, "created_at", None) else None),
+        "updated_at": (s.updated_at.isoformat() if getattr(s, "updated_at", None) else None),
+        "messages": msgs,
+    }), 200
+
+
+@app.route("/api/sessions/<session_id>/messages", methods=["POST"])
+def append_message_route(session_id: str):
+    """Append a single message to a session."""
+    if db is None or ChatSession is None:
+        return jsonify(_error_payload("Sessions not available", 500)), 500
+
+    s = db.session.get(ChatSession, session_id)
+    if not s:
+        return jsonify(_error_payload("Session not found", 404)), 404
+
+    data = request.get_json(silent=True) or {}
+    try:
+        req = AppendMessageRequest(**data)  # <-- ADDED: DTO validation
+    except ValidationError as ve:
+        payload = _error_payload("Validation error", 400)
+        payload["details"] = ve.errors()
+        return jsonify(payload), 400
+
+    try:
+        m = append_message(session_id, req.role, req.content, req.tokens)
+        current_app.logger.info("message.append", extra={"event": "message.append", "session_id": session_id, "role": req.role})
+        return jsonify({
+            "id": m.id,
+            "role": str(m.role),
+            "content": m.content,
+            "tokens": m.tokens,
+            "created_at": (m.created_at.isoformat() if getattr(m, "created_at", None) else None),
+        }), 201  # created
+    except ValueError:
+        return jsonify(_error_payload("Session not found", 404)), 404
+    except Exception as e:
+        current_app.logger.error("message.append.error", exc_info=True, extra={"event": "message.append", "session_id": session_id})
+        return jsonify(_error_payload(str(e), 500)), 500
+
+
+@app.route("/api/sessions/<session_id>", methods=["DELETE"])
+def delete_session_route(session_id: str):
+    """Delete a session and cascade messages."""
+    try:
+        ok = delete_session_row(session_id)
+    except Exception as e:
+        current_app.logger.error("session.delete.error", exc_info=True, extra={"event": "session.delete", "session_id": session_id})
+        return jsonify(_error_payload(str(e), 500)), 500
+
+    if not ok:
+        return jsonify(_error_payload("Session not found", 404)), 404
+
+    current_app.logger.info("session.delete", extra={"event": "session.delete", "session_id": session_id})
+    return ("", 204)  # no content
+
+
+@app.route("/api/sessions/<session_id>/export", methods=["GET"])
+def export_session_route(session_id: str):
+    """Export a session as JSON or Markdown (download)."""
+    fmt = (request.args.get("format") or "json").lower()
+    if fmt not in ("json", "md"):
+        return jsonify(_error_payload("Invalid format; use json|md", 400)), 400
+
+    if db is None or ChatSession is None:
+        return jsonify(_error_payload("Sessions not available", 500)), 500
+
+    s = db.session.get(ChatSession, session_id)
+    if not s:
+        return jsonify(_error_payload("Session not found", 404)), 404
+
+    try:
+        name, data_bytes, mime = export_session(session_id, fmt)
+        current_app.logger.info("session.export", extra={"event": "session.export", "session_id": session_id, "format": fmt})
+        headers = {
+            "Content-Type": mime,
+            "Content-Disposition": f'attachment; filename="{name}"',
+        }
+        return Response(data_bytes, headers=headers)
+    except Exception as e:
+        current_app.logger.error("session.export.error", exc_info=True, extra={"event": "session.export", "session_id": session_id})
+        return jsonify(_error_payload(str(e), 500)), 500
 # -------------------------------------------------------------------------
 
 # ---------------------- SPA FALLBACK FOR ROUTING -------------------------
