@@ -1,104 +1,122 @@
 # server/services/session_store.py
-"""
-Service/repository layer for Session & Message operations.
-
-This isolates DB logic from Flask routes. Routes can call these
-functions directly (JSON DTO mapping done at the edge).
-"""
+# Service/repository layer for Session & Message operations.
+# This isolates DB logic from Flask routes. Routes can call these
+# functions directly (JSON/DTO mapping done at the edge).
 
 from __future__ import annotations
 
-from typing import Iterable, List, Optional, Tuple, Literal, Dict, Any
+from datetime import datetime, timezone
+from typing import Iterable, List, Tuple, Optional
 
-from sqlalchemy import func, select, desc, case, literal_column
-from sqlalchemy.orm import Session as OrmSession
+# --- Mode-aware imports (supports both launch modes: top-level vs package) ---
+try:
+    # Package mode: gunicorn server.app:app
+    from ..config import db  # type: ignore
+    from ..models import Session, Message  # type: ignore
+except Exception:  # noqa: BLE001
+    # Top-level mode: gunicorn --chdir server app:app
+    from config import db  # type: ignore
+    from models import Session, Message  # type: ignore
+# -----------------------------------------------------------------------------
 
-from ..config import db
-from ..models import Session as ChatSession, Message
+# SQLAlchemy helpers from the Flask-SQLAlchemy facade
+from sqlalchemy import text  # for order_by("... DESC") safely
 
 
-def create_session(title: Optional[str] = None) -> ChatSession:
-    s = ChatSession(title=title)
-    db.session.add(s)
-    db.session.commit()
+def _utc(dt: Optional[datetime]) -> Optional[datetime]:
+    """Normalize to aware UTC datetimes for consistent JSON output."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+# ------------------------------ Public API ----------------------------------
+
+
+def create_session(title: Optional[str] = None) -> Session:
+    s = Session(title=title)               # create row
+    db.session.add(s)                      # stage
+    db.session.commit()                    # persist
     return s
 
 
-def list_sessions() -> List[Dict[str, Any]]:
+def get_session(session_id: str) -> Optional[Session]:
+    return db.session.get(Session, session_id)
+
+
+def list_sessions() -> List[dict]:
     """
-    Return sessions with computed last_activity (max(message.created_at) or updated_at).
+    Return session summaries:
+      [{id, title, created_at, last_activity}], sorted by last_activity desc.
+    last_activity = max(message.created_at) or session.created_at if no messages.
     """
-    # LEFT OUTER JOIN messages to compute last_activity.
-    subq = (
+    q = (
         db.session.query(
-            Message.session_id.label("sid"),
-            func.max(Message.created_at).label("last_msg_at"),
+            Session.id,
+            Session.title,
+            Session.created_at,
+            db.func.coalesce(db.func.max(Message.created_at), Session.created_at).label(
+                "last_activity"
+            ),
         )
-        .group_by(Message.session_id)
-        .subquery()
+        .outerjoin(Message, Message.session_id == Session.id)
+        .group_by(Session.id, Session.title, Session.created_at)
+        .order_by(text("last_activity DESC"))  # use sqlalchemy.text for clarity
     )
 
-    rows = (
-        db.session.query(
-            ChatSession.id,
-            ChatSession.title,
-            ChatSession.created_at,
-            func.coalesce(subq.c.last_msg_at, ChatSession.updated_at).label("last_activity"),
+    rows = []
+    for sid, title, created_at, last_activity in q:
+        rows.append(
+            {
+                "id": sid,
+                "title": title,
+                "created_at": _utc(created_at),
+                "last_activity": _utc(last_activity),
+            }
         )
-        .outerjoin(subq, subq.c.sid == ChatSession.id)
-        .order_by(desc("last_activity"))
-        .all()
-    )
-
-    return [
-        {
-            "id": r.id,
-            "title": r.title,
-            "created_at": r.created_at,
-            "last_activity": r.last_activity,
-        }
-        for r in rows
-    ]
+    return rows
 
 
-def get_session_messages(session_id: str) -> List[Dict[str, Any]]:
-    msgs = (
+def get_session_messages(session_id: str) -> List[dict]:
+    msgs: Iterable[Message] = (
         db.session.query(Message)
         .filter(Message.session_id == session_id)
         .order_by(Message.created_at.asc())
         .all()
     )
-    return [
-        {
-            "id": m.id,
-            "role": str(m.role),
-            "content": m.content,
-            "tokens": m.tokens,
-            "created_at": m.created_at,
-        }
-        for m in msgs
-    ]
+    out: List[dict] = []
+    for m in msgs:
+        out.append(
+            {
+                "id": m.id,
+                "role": str(m.role),
+                "content": m.content,
+                "tokens": m.tokens,
+                "created_at": _utc(m.created_at),
+            }
+        )
+    return out
 
 
-def append_message(session_id: str, role: Literal["user", "assistant"], content: str, tokens: Optional[int] = None) -> Message:
-    # Optional: assert the session exists; raise if not found. // ADDED
-    s = db.session.get(ChatSession, session_id)
+def append_message(session_id: str, role: str, content: str, tokens: Optional[int] = None) -> Message:
+    s = db.session.get(Session, session_id)
     if not s:
-        raise ValueError("Session not found")
+        raise ValueError("session_not_found")
 
-    msg = Message(session_id=session_id, role=role, content=content, tokens=tokens)
-    db.session.add(msg)
+    m = Message(session_id=session_id, role=role, content=content, tokens=tokens)
+    db.session.add(m)
 
-    # Touch parent updated_at via ORM flush (onupdate=func.now()). // ADDED
-    # Explicitly mark the parent dirty so onupdate fires on commit.
-    db.session.add(s)
+    # Touch parent updated_at (DB onupdate also handles this, but be explicit)
+    s.updated_at = db.func.now()  # type: ignore[assignment]
 
     db.session.commit()
-    return msg
+    return m
 
 
 def delete_session(session_id: str) -> bool:
-    s = db.session.get(ChatSession, session_id)
+    s = db.session.get(Session, session_id)
     if not s:
         return False
     db.session.delete(s)
@@ -106,54 +124,49 @@ def delete_session(session_id: str) -> bool:
     return True
 
 
-def export_session(session_id: str, fmt: Literal["json", "md"]) -> Tuple[str, bytes, str]:
-    """
-    Export a session in JSON or Markdown.
-
-    Returns (filename, data_bytes, mime_type).
-    """
-    s = db.session.get(ChatSession, session_id)
+def export_session(session_id: str, fmt: str) -> Tuple[str, bytes, str]:
+    s = db.session.get(Session, session_id)
     if not s:
-        raise ValueError("Session not found")
-    messages = (
-        db.session.query(Message).filter_by(session_id=session_id).order_by(Message.created_at.asc()).all()
-    )
+        raise ValueError("session_not_found")
+
+    msgs = get_session_messages(session_id)
+
+    payload = {
+        "id": s.id,
+        "title": s.title,
+        "created_at": _utc(getattr(s, "created_at", None)).isoformat() if getattr(s, "created_at", None) else None,
+        "updated_at": _utc(getattr(s, "updated_at", None)).isoformat() if getattr(s, "updated_at", None) else None,
+        "messages": [
+            {
+                "role": m["role"],
+                "content": m["content"],
+                "tokens": m["tokens"],
+                "created_at": (m["created_at"].isoformat() if m.get("created_at") else None),
+            }
+            for m in msgs
+        ],
+    }
 
     if fmt == "json":
-        payload = {
-            "session": {
-                "id": s.id,
-                "title": s.title,
-                "created_at": s.created_at.isoformat() if s.created_at else None,
-                "updated_at": s.updated_at.isoformat() if s.updated_at else None,
-            },
-            "messages": [
-                {
-                    "id": m.id,
-                    "role": str(m.role),
-                    "content": m.content,
-                    "tokens": m.tokens,
-                    "created_at": m.created_at.isoformat() if m.created_at else None,
-                }
-                for m in messages
-            ],
-        }
-        name = f"session_{s.id}.json"
-        return name, (repr(payload) if False else  # keep repr path for debugging if needed
-                      # Serialize compactly to bytes:
-                      (str(payload).encode("utf-8") if False else __import__("json").dumps(payload, separators=(",", ":")).encode("utf-8"))), "application/json"
+        import json
+        data = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+        return f"session_{s.id}.json", data, "application/json; charset=utf-8"
 
-    # Markdown rendering // ADDED
-    lines = [f"# Session {s.id}", ""]
-    if s.title:
-      lines.insert(1, f"**Title:** {s.title}\n")
-    for m in messages:
-        ts = m.created_at.isoformat() if m.created_at else ""
-        role = str(m.role)
-        lines.append(f"## {role} — {ts}")
+    # Markdown export
+    lines = []
+    title = s.title or s.id
+    lines.append(f"# Session: {title}")
+    if payload["created_at"]:
+        lines.append(f"_Created_: {payload['created_at']}")
+    if payload["updated_at"]:
+        lines.append(f"_Updated_: {payload['updated_at']}")
+    lines.append("")
+    for m in msgs:
+        ts = m.get("created_at")
+        ts_s = ts.isoformat() if ts else ""
+        lines.append(f"## {m['role'].capitalize()}  {('('+ts_s+')') if ts_s else ''}")
         lines.append("")
-        lines.append(m.content)
+        lines.append(m["content"])
         lines.append("")
     md = "\n".join(lines).encode("utf-8")
-    name = f"session_{s.id}.md"
-    return name, md, "text/markdown"
+    return f"session_{s.id}.md", md, "text/markdown; charset=utf-8"
