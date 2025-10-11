@@ -1,4 +1,4 @@
-// server/models.py
+# server/models.py
 from __future__ import annotations
 
 # SQLAlchemy models for Sessions & Messages.
@@ -21,14 +21,13 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
-# --- CHANGED: mode-aware import of db (supports both launch modes) ----------
+# Mode-aware import of db so this works in both launch modes (package/top-level).
 try:
     # Package mode: gunicorn server.app:app
-    from .config import db  # noqa: F401
+    from .config import db  # <-- keeps package mode working
 except Exception:  # noqa: BLE001
     # Top-level mode: gunicorn --chdir server app:app
-    from config import db  # type: ignore
-# ---------------------------------------------------------------------------
+    from config import db  # type: ignore  # <-- fallback for top-level mode
 
 # Define a small enum for message roles
 MessageRole = Enum("user", "assistant", name="message_role")
@@ -87,21 +86,19 @@ class Message(db.Model):
 Index("ix_messages_session_created_at", Message.session_id, Message.created_at)
 
 
-# --- CHANGED: register PRAGMA on generic Engine, not db.engine --------------
-# Accessing db.engine at import time requires an application context.
-# Instead, listen on sqlalchemy.engine.Engine and only act for SQLite.
-from sqlalchemy.engine import Engine  # <-- ADDED
+# Register PRAGMA on generic Engine (NOT db.engine) so we don't require an
+# application context at import time; only acts for SQLite connections.
+from sqlalchemy.engine import Engine  # <-- added previously to avoid app ctx
 
-@event.listens_for(Engine, "connect")  # <-- CHANGED: avoid touching db.engine at import
+@event.listens_for(Engine, "connect")
 def _set_sqlite_pragma(dbapi_connection, connection_record):
     """Enable foreign key constraints for SQLite (no-op for Postgres)."""
     try:
-        from sqlite3 import Connection as SQLite3Connection  # local import avoids sqlite dep on pg
-        if isinstance(dbapi_connection, SQLite3Connection):  # only apply to SQLite engines
+        from sqlite3 import Connection as SQLite3Connection
+        if isinstance(dbapi_connection, SQLite3Connection):  # only SQLite
             cursor = dbapi_connection.cursor()
             cursor.execute("PRAGMA foreign_keys=ON")
             cursor.close()
     except Exception:
         # Non-sqlite engines or environments without sqlite will safely no-op.
         pass
-# ---------------------------------------------------------------------------
