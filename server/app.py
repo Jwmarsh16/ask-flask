@@ -3,6 +3,7 @@
 
 import os
 import logging  # structured logging uses app.logger
+import importlib  # <-- ADDED: used for lazy import of session_store on demand
 from openai import OpenAI
 from flask import (
     request,
@@ -49,9 +50,9 @@ if __package__ in (None, ""):  # top-level launch: gunicorn --chdir server app:a
 
     # --- Sessions service & models (ABSOLUTE) ----------------
     try:
-        import services.session_store as session_store  # <-- CHANGED: import the module, not individual funcs
+        import services.session_store as session_store  # import the module (may fail in some modes)
     except Exception:  # noqa: BLE001
-        session_store = None  # <-- CHANGED: if import fails, we can guard at runtime
+        session_store = None  # <-- CHANGED: defer to lazy import guard if needed
 
     try:
         from models import Session as ChatSession      # keep existence checks fast
@@ -85,9 +86,9 @@ else:  # package launch: gunicorn server.app:app
 
     # --- Sessions service & models (PACKAGE) -----------------
     try:
-        from .services import session_store as session_store  # <-- CHANGED: import the module
+        from .services import session_store as session_store  # import the module (may fail in some modes)
     except Exception:  # noqa: BLE001
-        session_store = None
+        session_store = None  # <-- CHANGED: defer to lazy import guard if needed
 
     try:
         from .models import Session as ChatSession
@@ -180,14 +181,32 @@ def _error_payload(message: str, code: int):
         "request_id": getattr(g, "request_id", None),
     }
 
-# ------------------- Sessions module guard (NEW) --------------------------
-def _ensure_sessions_service():  # <-- ADDED: avoid NoneType crashes if import failed
+# ------------------- Sessions module guard (ENHANCED) ----------------------
+def _ensure_sessions_service():
+    """
+    Ensure session_store module is available. Try a lazy import in both
+    package and top-level forms so we work regardless of start mode.
+    """
+    global session_store  # <-- ADDED: we mutate the module-level variable
     if session_store is None:
-        current_app.logger.error(
-            "sessions.service.missing",
-            extra={"event": "sessions.service.missing", "request_id": getattr(g, "request_id", None)},
-        )
-        return jsonify(_error_payload("Internal Server Error", 500)), 500
+        try:
+            # First try package path (preferred)
+            session_store = importlib.import_module("server.services.session_store")  # <-- ADDED: lazy import
+        except Exception as e1:
+            try:
+                # Fallback to top-level path if app was launched with --chdir server
+                session_store = importlib.import_module("services.session_store")      # <-- ADDED: lazy import fallback
+            except Exception as e2:
+                current_app.logger.error(
+                    "sessions.service.import_error",
+                    exc_info=True,  # include traceback for debugging
+                    extra={
+                        "event": "sessions.service.import_error",
+                        "err1": repr(e1),
+                        "err2": repr(e2),
+                    },
+                )
+                return jsonify(_error_payload("Internal Server Error", 500)), 500
     return None
 # -------------------------------------------------------------------------
 
@@ -229,19 +248,21 @@ def chat():
 
     # Optional session persistence (guarded)
     session_exists = False
-    if req.session_id and db is not None and ChatSession is not None and session_store is not None:  # <-- CHANGED: guard module
-        try:
-            session_exists = db.session.get(ChatSession, req.session_id) is not None
-            if session_exists:
-                session_store.append_message(req.session_id, "user", req.message)  # <-- CHANGED: call via module
-        except Exception:
-            session_exists = False  # swallow persistence errors to not affect chat
+    if req.session_id and db is not None and ChatSession is not None:
+        # Only attempt to use session_store if it is importable
+        if _ensure_sessions_service() is None:  # <-- CHANGED: ensure module before use
+            try:
+                session_exists = db.session.get(ChatSession, req.session_id) is not None
+                if session_exists:
+                    session_store.append_message(req.session_id, "user", req.message)
+            except Exception:
+                session_exists = False  # swallow persistence errors to not affect chat
 
     try:
         reply_text = openai_service.complete(model=req.model, messages=messages)
         if session_exists:
             try:
-                session_store.append_message(req.session_id, "assistant", reply_text)  # <-- CHANGED
+                session_store.append_message(req.session_id, "assistant", reply_text)
             except Exception:
                 pass
 
@@ -311,13 +332,14 @@ def chat_stream():
         session_exists = False
 
         # Persist user message if session valid
-        if req.session_id and db is not None and ChatSession is not None and session_store is not None:  # <-- CHANGED
-            try:
-                session_exists = db.session.get(ChatSession, req.session_id) is not None
-                if session_exists:
-                    session_store.append_message(req.session_id, "user", req.message)  # <-- CHANGED
-            except Exception:
-                session_exists = False
+        if req.session_id and db is not None and ChatSession is not None:
+            if _ensure_sessions_service() is None:  # <-- CHANGED: ensure module before use
+                try:
+                    session_exists = db.session.get(ChatSession, req.session_id) is not None
+                    if session_exists:
+                        session_store.append_message(req.session_id, "user", req.message)
+                except Exception:
+                    session_exists = False
 
         try:
             yield f"data: {json.dumps({'request_id': rid})}\n\n"
@@ -328,7 +350,7 @@ def chat_stream():
 
             if session_exists:
                 try:
-                    session_store.append_message(req.session_id, "assistant", "".join(assembled))  # <-- CHANGED
+                    session_store.append_message(req.session_id, "assistant", "".join(assembled))
                 except Exception:
                     pass
 
@@ -370,7 +392,7 @@ def chat_stream():
 @app.route("/api/sessions", methods=["POST"])
 def create_session_route():
     """Create a new chat session (optional title)."""
-    err = _ensure_sessions_service()                 # <-- ADDED: guard before using session_store
+    err = _ensure_sessions_service()                 # <-- CHANGED: use enhanced guard
     if err:
         return err
 
@@ -383,7 +405,7 @@ def create_session_route():
         return jsonify(payload), 400
 
     try:
-        s = session_store.create_session(title=req.title)  # <-- CHANGED: call via module
+        s = session_store.create_session(title=req.title)  # call via module
     except Exception as e:
         current_app.logger.error("session.create.error", exc_info=True, extra={"event": "session.create", "title": req.title})
         return jsonify(_error_payload(str(e), 500)), 500
@@ -400,12 +422,12 @@ def create_session_route():
 @app.route("/api/sessions", methods=["GET"])
 def list_sessions_route():
     """List sessions with last activity."""
-    err = _ensure_sessions_service()                 # <-- ADDED
+    err = _ensure_sessions_service()                 # <-- CHANGED: use enhanced guard
     if err:
         return err
 
     try:
-        rows = session_store.list_sessions()         # <-- CHANGED
+        rows = session_store.list_sessions()         # call via module
     except Exception as e:
         current_app.logger.error("session.list.error", exc_info=True, extra={"event": "session.list"})
         return jsonify(_error_payload(str(e), 500)), 500
@@ -424,7 +446,7 @@ def list_sessions_route():
 @app.route("/api/sessions/<session_id>", methods=["GET"])
 def get_session_route(session_id: str):
     """Get messages for a session (ascending by created_at)."""
-    err = _ensure_sessions_service()                 # <-- ADDED
+    err = _ensure_sessions_service()                 # <-- CHANGED
     if err:
         return err
 
@@ -436,7 +458,7 @@ def get_session_route(session_id: str):
         return jsonify(_error_payload("Session not found", 404)), 404
 
     try:
-        msgs = session_store.get_session_messages(session_id)  # <-- CHANGED
+        msgs = session_store.get_session_messages(session_id)
     except Exception as e:
         current_app.logger.error("session.get.error", exc_info=True, extra={"event": "session.get", "session_id": session_id})
         return jsonify(_error_payload(str(e), 500)), 500
@@ -458,7 +480,7 @@ def get_session_route(session_id: str):
 @app.route("/api/sessions/<session_id>/messages", methods=["POST"])
 def append_message_route(session_id: str):
     """Append a single message to a session."""
-    err = _ensure_sessions_service()                 # <-- ADDED
+    err = _ensure_sessions_service()                 # <-- CHANGED
     if err:
         return err
 
@@ -478,7 +500,7 @@ def append_message_route(session_id: str):
         return jsonify(payload), 400
 
     try:
-        m = session_store.append_message(session_id, req.role, req.content, req.tokens)  # <-- CHANGED
+        m = session_store.append_message(session_id, req.role, req.content, req.tokens)
         current_app.logger.info("message.append", extra={"event": "message.append", "session_id": session_id, "role": req.role})
         return jsonify({
             "id": m.id,
@@ -497,12 +519,12 @@ def append_message_route(session_id: str):
 @app.route("/api/sessions/<session_id>", methods=["DELETE"])
 def delete_session_route(session_id: str):
     """Delete a session and cascade messages."""
-    err = _ensure_sessions_service()                 # <-- ADDED
+    err = _ensure_sessions_service()                 # <-- CHANGED
     if err:
         return err
 
     try:
-        ok = session_store.delete_session(session_id)  # <-- CHANGED
+        ok = session_store.delete_session(session_id)
     except Exception as e:
         current_app.logger.error("session.delete.error", exc_info=True, extra={"event": "session.delete", "session_id": session_id})
         return jsonify(_error_payload(str(e), 500)), 500
@@ -517,7 +539,7 @@ def delete_session_route(session_id: str):
 @app.route("/api/sessions/<session_id>/export", methods=["GET"])
 def export_session_route(session_id: str):
     """Export a session as JSON or Markdown (download)."""
-    err = _ensure_sessions_service()                 # <-- ADDED
+    err = _ensure_sessions_service()                 # <-- CHANGED
     if err:
         return err
 
@@ -533,7 +555,7 @@ def export_session_route(session_id: str):
         return jsonify(_error_payload("Session not found", 404)), 404
 
     try:
-        name, data_bytes, mime = session_store.export_session(session_id, fmt)  # <-- CHANGED
+        name, data_bytes, mime = session_store.export_session(session_id, fmt)
         current_app.logger.info("session.export", extra={"event": "session.export", "session_id": session_id, "format": fmt})
         headers = {
             "Content-Type": mime,
