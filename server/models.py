@@ -21,7 +21,15 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
-from .config import db, app  # reuse configured SQLAlchemy instance
+# --- CHANGED: mode-aware import so this file works in both launch modes ----
+try:
+    # Package mode: gunicorn server.app:app
+    from .config import db  # noqa: F401
+except Exception:  # noqa: BLE001
+    # Top-level mode: gunicorn --chdir server app:app
+    from config import db  # type: ignore
+# --------------------------------------------------------------------------
+
 
 # Define a small enum for message roles
 MessageRole = Enum("user", "assistant", name="message_role")  # reuses naming_convention
@@ -76,7 +84,7 @@ class Message(db.Model):
         return f"<Message id={self.id} session_id={self.session_id} role={self.role}>"
 
 
-# Composite index to optimize timeline fetches in a session.  // ADDED
+# Composite index to optimize timeline fetches in a session.
 Index("ix_messages_session_created_at", Message.session_id, Message.created_at)
 
 
