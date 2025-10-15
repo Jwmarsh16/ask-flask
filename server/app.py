@@ -210,6 +210,42 @@ def _ensure_sessions_service():
     return None
 # -------------------------------------------------------------------------
 
+# 🔹 NEW: helper to build OpenAI messages from DB history when session_id is provided
+def _build_openai_messages_with_context(user_text: str, model: str, session_id: str | None):
+    """
+    Compose the messages array for OpenAI using prior DB turns (if any) plus the
+    current user message. Limits the window to the last N turns to control cost.
+    """
+    SYSTEM_PROMPT = "You are a helpful assistant."
+    MAX_TURNS = int(os.getenv("CHAT_CONTEXT_MAX_TURNS", "12"))  # <-- ADDED: env-tunable context window
+
+    msgs = [{"role": "system", "content": SYSTEM_PROMPT}]
+
+    if session_id and db is not None and ChatSession is not None:
+        if _ensure_sessions_service() is None:
+            try:
+                # Get prior messages ascending by created_at; slice to recent window // <-- ADDED
+                prior = session_store.get_session_messages(session_id) or []
+                # Keep only the most recent 2*MAX_TURNS items (~MAX_TURNS exchanges) // <-- ADDED
+                if len(prior) > MAX_TURNS * 2:
+                    prior = prior[-(MAX_TURNS * 2):]
+                for m in prior:
+                    role = "assistant" if m.get("role") == "assistant" else "user"
+                    content = m.get("content") or ""
+                    if content:
+                        msgs.append({"role": role, "content": content})
+            except Exception:
+                current_app.logger.warning(
+                    "sessions.context.load_failed",
+                    exc_info=True,
+                    extra={"event": "sessions.context.load_failed", "session_id": session_id},
+                )
+                # Fall through with no prior context
+                pass
+
+    # Always append the current user message last // <-- ADDED
+    msgs.append({"role": "user", "content": user_text})
+    return msgs
 
 @app.route("/health", methods=["GET"])
 def health():
@@ -241,20 +277,16 @@ def chat():
         payload["details"] = ve.errors()
         return jsonify(payload), 400
 
-    messages = [
-        {"role": "system", "content": "You are a helpful assistant."},
-        {"role": "user", "content": req.message},
-    ]
+    # 🔹 CHANGED: Build messages from DB context (if any) + current user // replaces fixed 2-message array
+    messages = _build_openai_messages_with_context(req.message, req.model, req.session_id)  # <-- CHANGED
 
     # Optional session persistence (guarded)
     session_exists = False
     if req.session_id and db is not None and ChatSession is not None:
         # Only attempt to use session_store if it is importable
-        if _ensure_sessions_service() is None:  # <-- CHANGED: ensure module before use
+        if _ensure_sessions_service() is None:
             try:
                 session_exists = db.session.get(ChatSession, req.session_id) is not None
-                if session_exists:
-                    session_store.append_message(req.session_id, "user", req.message)
             except Exception:
                 session_exists = False  # swallow persistence errors to not affect chat
 
@@ -262,6 +294,8 @@ def chat():
         reply_text = openai_service.complete(model=req.model, messages=messages)
         if session_exists:
             try:
+                # 🔹 CHANGED: append after building context (order avoids double-counting) // <-- CHANGED
+                session_store.append_message(req.session_id, "user", req.message)
                 session_store.append_message(req.session_id, "assistant", reply_text)
             except Exception:
                 pass
@@ -319,10 +353,8 @@ def chat_stream():
         extra={"event": "openai.chat.stream.start", "request_id": getattr(g, "request_id", None), "model": req.model},
     )
 
-    messages = [
-        {"role": "system", "content": "You are a helpful assistant."},
-        {"role": "user", "content": req.message},
-    ]
+    # 🔹 CHANGED: Build messages from DB context (if any) + current user // replaces fixed 2-message array
+    messages = _build_openai_messages_with_context(req.message, req.model, req.session_id)  # <-- CHANGED
 
     @stream_with_context
     def generate():
@@ -331,13 +363,11 @@ def chat_stream():
         assembled = []
         session_exists = False
 
-        # Persist user message if session valid
+        # Determine if session exists (we append after streaming completes) // <-- CHANGED: no pre-append
         if req.session_id and db is not None and ChatSession is not None:
-            if _ensure_sessions_service() is None:  # <-- CHANGED: ensure module before use
+            if _ensure_sessions_service() is None:
                 try:
                     session_exists = db.session.get(ChatSession, req.session_id) is not None
-                    if session_exists:
-                        session_store.append_message(req.session_id, "user", req.message)
                 except Exception:
                     session_exists = False
 
@@ -350,6 +380,8 @@ def chat_stream():
 
             if session_exists:
                 try:
+                    # 🔹 CHANGED: append both user and assistant after stream completes // <-- CHANGED
+                    session_store.append_message(req.session_id, "user", req.message)
                     session_store.append_message(req.session_id, "assistant", "".join(assembled))
                 except Exception:
                     pass
