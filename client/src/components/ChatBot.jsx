@@ -50,7 +50,9 @@ export default function ChatBot({ sessionId, onSelectSession }) { // <-- CHANGED
     let cancelled = false
     ;(async () => {
       try {
-        const res = await fetch(`${API_BASE}/api/sessions/${sessionId}`, { credentials: 'same-origin' })
+        const res = await fetch(`${API_BASE}/api/sessions/${sessionId}`, {
+          credentials: 'same-origin', // <-- ADDED: include cookies if we add auth later
+        })
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         const data = await res.json()
         const serverMsgs = Array.isArray(data?.messages) ? data.messages : []
@@ -127,13 +129,14 @@ export default function ChatBot({ sessionId, onSelectSession }) { // <-- CHANGED
   const sendMessageNonStreaming = async (trimmed, ts) => {
     try {
       const payload = {
-        message: trimmed,                 // send raw user message (server builds context)
+        message: trimmed,                   // send raw user message (server builds context)
         model,
         session_id: sessionId || undefined, // persist to active session
       }
       const res = await fetch(`${API_BASE}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',        // <-- ADDED: align with other calls
         body: JSON.stringify(payload),
       })
 
@@ -176,13 +179,14 @@ export default function ChatBot({ sessionId, onSelectSession }) { // <-- CHANGED
 
     try {
       const payload = {
-        message: trimmed,                 // send raw user message (server builds context)
+        message: trimmed,                   // send raw user message (server builds context)
         model,
         session_id: sessionId || undefined, // persist to active session
       }
       const res = await fetch(`${API_BASE}/api/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',        // <-- ADDED: align with other calls
         body: JSON.stringify(payload),
       })
 
@@ -192,6 +196,7 @@ export default function ChatBot({ sessionId, onSelectSession }) { // <-- CHANGED
 
       if (!res.ok || !res.body) {
         // If streaming not available or failed, gracefully fall back
+        setMessages((prev) => prev.slice(0, -1)) // <-- CHANGED: remove placeholder before fallback to avoid duplicate bot msgs
         return await sendMessageNonStreaming(trimmed, ts)
       }
 
@@ -267,11 +272,8 @@ export default function ChatBot({ sessionId, onSelectSession }) { // <-- CHANGED
         }
       }
     } catch (_err) {
-      // Network or stream failure → fall back message
-      setMessages((prev) => [
-        ...prev,
-        { role: 'assistant', content: 'Network error during streaming. Retrying...', timestamp: ts },
-      ])
+      // Network or stream failure → fall back to non-stream
+      setMessages((prev) => prev.slice(0, -1)) // <-- CHANGED: remove placeholder before fallback
       await sendMessageNonStreaming(trimmed, ts)
     } finally {
       setIsTyping(false)
@@ -286,7 +288,8 @@ export default function ChatBot({ sessionId, onSelectSession }) { // <-- CHANGED
       const res = await fetch(`${API_BASE}/api/sessions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}), // title optional; let server default it
+        credentials: 'same-origin', // <-- ADDED: align with other calls
+        body: JSON.stringify({}),   // title optional; let server default it
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json()
@@ -317,7 +320,6 @@ export default function ChatBot({ sessionId, onSelectSession }) { // <-- CHANGED
     function CodeBlock({ inline, className, children, ...props }) {
       if (inline) return <code className={className} {...props}>{children}</code>
 
-      const match = /language-(\w+)/.exec(className || '')
       const rawCode = String(children || '')
 
       const onCopy = async () => {
@@ -369,13 +371,14 @@ export default function ChatBot({ sessionId, onSelectSession }) { // <-- CHANGED
             />
             Stream
           </label>
-          <select value={model} onChange={(e) => setModel(e.target.value)}>
+          <select value={model} onChange={(e) => setModel(e.target.value)} aria-label="Model">
             <option value="gpt-3.5-turbo">GPT-3.5</option>
             <option value="gpt-4">GPT-4</option>
           </select>
           <button
-            onClick={handleClearChat}                   // <-- CHANGED: create + select new session
-            disabled={newSessionLoading}                // <-- ADDED: disable during request
+            type="button"                          // <-- ADDED: explicit type
+            onClick={handleClearChat}              // <-- CHANGED: create + select new session
+            disabled={newSessionLoading}           // <-- ADDED: disable during request
             title="Create a brand-new session and clear the chat"
           >
             {newSessionLoading ? 'Creating…' : 'Clear Chat'}
@@ -404,7 +407,7 @@ export default function ChatBot({ sessionId, onSelectSession }) { // <-- CHANGED
         ))}
 
         {isTyping && (
-          <div className="message bot typing-indicator">
+          <div className="message bot typing-indicator" aria-live="polite" aria-label="Assistant is typing">
             <span className="dot"></span>
             <span className="dot"></span>
             <span className="dot"></span>
@@ -420,8 +423,9 @@ export default function ChatBot({ sessionId, onSelectSession }) { // <-- CHANGED
           onChange={(e) => setInput(e.target.value)}
           placeholder="Type a message..."
           onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
+          aria-label="Message input"
         />
-        <button onClick={sendMessage}>Send</button>
+        <button type="button" onClick={sendMessage} aria-label="Send message">Send</button> {/* <-- ADDED: explicit type + aria */}
       </div>
     </div>
   )
