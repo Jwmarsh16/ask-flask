@@ -24,7 +24,7 @@ const isDev = import.meta.env.DEV
 const isLocalhost = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(rawEnvBase)
 const API_BASE = isDev ? (rawEnvBase || 'http://localhost:5555') : (rawEnvBase && !isLocalhost ? rawEnvBase : '')  // unchanged
 
-function ChatBot() {
+function ChatBot({ sessionId }) { // <-- ADDED: accept sessionId prop so requests can persist to a session
   const [input, setInput] = useState('')
   const [messages, setMessages] = useState(() => {
     const saved = localStorage.getItem('askFlaskMessages')
@@ -101,10 +101,11 @@ function ChatBot() {
 
   const sendMessageNonStreaming = async (trimmed, ts) => {               // non-stream flow
     try {
+      const payload = { message: trimmed, model, session_id: sessionId || undefined } // <-- CHANGED: include session_id when available
       const res = await fetch(`${API_BASE}/api/chat`, { // prod → same-origin; dev → localhost:5555
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: trimmed, model }),
+        body: JSON.stringify(payload), // <-- CHANGED: send payload with session_id
       })
 
       // --- Rate limit header handling (JSON path) ---
@@ -149,10 +150,11 @@ function ChatBot() {
     ])
 
     try {
+      const payload = { message: trimmed, model, session_id: sessionId || undefined } // <-- CHANGED: include session_id when available
       const res = await fetch(`${API_BASE}/api/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: trimmed, model }),
+        body: JSON.stringify(payload), // <-- CHANGED: send payload with session_id
       })
 
       // --- Rate limit header handling (SSE path) ---
