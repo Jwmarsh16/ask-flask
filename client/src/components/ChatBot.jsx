@@ -24,7 +24,7 @@ const isDev = import.meta.env.DEV
 const isLocalhost = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(rawEnvBase)
 const API_BASE = isDev ? (rawEnvBase || 'http://localhost:5555') : (rawEnvBase && !isLocalhost ? rawEnvBase : '')  // unchanged
 
-export default function ChatBot({ sessionId }) { // accept sessionId (prop already plumbed)
+export default function ChatBot({ sessionId, onSelectSession }) { // <-- CHANGED: accept onSelectSession
   const [input, setInput] = useState('')
   const [messages, setMessages] = useState(() => {
     const saved = localStorage.getItem('askFlaskMessages')
@@ -39,6 +39,7 @@ export default function ChatBot({ sessionId }) { // accept sessionId (prop alrea
     return saved ? saved === 'true' : true
   })
   const [rateRemaining, setRateRemaining] = useState(null)              // track X-RateLimit-Remaining (JSON + SSE)
+  const [newSessionLoading, setNewSessionLoading] = useState(false)     // <-- ADDED: disable Clear while creating
 
   const chatEndRef = useRef(null)
   const chatWindowRef = useRef(null)                                    // scope Prism highlighting
@@ -126,9 +127,9 @@ export default function ChatBot({ sessionId }) { // accept sessionId (prop alrea
   const sendMessageNonStreaming = async (trimmed, ts) => {
     try {
       const payload = {
-        message: trimmed,                 // <-- CHANGED: send raw user message (no context stuffing)
+        message: trimmed,                 // send raw user message (server builds context)
         model,
-        session_id: sessionId || undefined, // persist to active session (kept)
+        session_id: sessionId || undefined, // persist to active session
       }
       const res = await fetch(`${API_BASE}/api/chat`, {
         method: 'POST',
@@ -175,9 +176,9 @@ export default function ChatBot({ sessionId }) { // accept sessionId (prop alrea
 
     try {
       const payload = {
-        message: trimmed,                 // <-- CHANGED: send raw user message (no context stuffing)
+        message: trimmed,                 // send raw user message (server builds context)
         model,
-        session_id: sessionId || undefined, // persist to active session (kept)
+        session_id: sessionId || undefined, // persist to active session
       }
       const res = await fetch(`${API_BASE}/api/chat/stream`, {
         method: 'POST',
@@ -277,10 +278,38 @@ export default function ChatBot({ sessionId }) { // accept sessionId (prop alrea
     }
   }
 
-  const clearChat = () => {
-    // For now, just clears UI + LocalStorage. Next step: create a new server session instead.
-    setMessages([])
-    localStorage.removeItem('askFlaskMessages')
+  // 🔹 CHANGED: Create a brand-new session on the server and select it
+  const handleClearChat = async () => {
+    if (newSessionLoading) return
+    setNewSessionLoading(true) // <-- ADDED: prevent double-click
+    try {
+      const res = await fetch(`${API_BASE}/api/sessions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}), // title optional; let server default it
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
+      const id = data?.id
+      if (!id) throw new Error('Missing session id')
+
+      // Clear local transcript and switch to the new session
+      setMessages([]) // <-- ADDED: clear UI
+      localStorage.removeItem('askFlaskMessages') // <-- ADDED: clear persisted UI transcript
+      onSelectSession?.(id) // <-- ADDED: inform parent to persist + update sidebar
+    } catch (_e) {
+      // Non-fatal: surface a friendly inline error
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: 'Could not create a new session. Please try again.',
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        },
+      ])
+    } finally {
+      setNewSessionLoading(false)
+    }
   }
 
   // Memoized Markdown components so copy buttons don’t re-create unnecessarily
@@ -344,7 +373,13 @@ export default function ChatBot({ sessionId }) { // accept sessionId (prop alrea
             <option value="gpt-3.5-turbo">GPT-3.5</option>
             <option value="gpt-4">GPT-4</option>
           </select>
-          <button onClick={clearChat}>Clear Chat</button>
+          <button
+            onClick={handleClearChat}                   // <-- CHANGED: create + select new session
+            disabled={newSessionLoading}                // <-- ADDED: disable during request
+            title="Create a brand-new session and clear the chat"
+          >
+            {newSessionLoading ? 'Creating…' : 'Clear Chat'}
+          </button>
         </div>
       </div>
 

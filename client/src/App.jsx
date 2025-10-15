@@ -43,8 +43,11 @@ function App() {
             />
           </aside>
           <main>
-            {/* Passing sessionId is safe even if ChatBot ignores it today. */}
-            <ChatBot sessionId={sessionId} />        {/* <-- ADDED (kept): plumb session id to ChatBot */}
+            {/* Pass the session switcher so ChatBot can create + select a new session. */}
+            <ChatBot
+              sessionId={sessionId}
+              onSelectSession={handleSelectSession}  // <-- ADDED: allow ChatBot to select new session
+            />
           </main>
         </div>
       </div>
