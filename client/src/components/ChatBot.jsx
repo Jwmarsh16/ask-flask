@@ -5,7 +5,7 @@ import '../ChatBot.css'
 // ✨ Markdown rendering + GFM + Prism highlighting
 import ReactMarkdown from 'react-markdown'                 // render Markdown
 import remarkGfm from 'remark-gfm'                         // GitHub-flavored Markdown
-import Prism from 'prismjs'                                 // syntax highlighter
+import Prism from 'prismjs'                                // syntax highlighter
 import 'prismjs/components/prism-javascript'               // common languages
 import 'prismjs/components/prism-typescript'
 import 'prismjs/components/prism-jsx'
@@ -14,7 +14,7 @@ import 'prismjs/components/prism-python'
 import 'prismjs/components/prism-json'
 import 'prismjs/components/prism-markup'
 // import 'prismjs/themes/prism.css'                        // ❌ OLD: light theme (replaced)
-import 'prismjs/themes/prism-tomorrow.css'                  // ✅ CHANGED: darker theme to match dark UI
+import 'prismjs/themes/prism-tomorrow.css'                 // ✅ CHANGED: darker theme to match dark UI
 
 // 👇 Robust API base resolution:
 // - DEV: use VITE_API_BASE_URL or default to http://localhost:5555
@@ -24,7 +24,7 @@ const isDev = import.meta.env.DEV
 const isLocalhost = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(rawEnvBase)
 const API_BASE = isDev ? (rawEnvBase || 'http://localhost:5555') : (rawEnvBase && !isLocalhost ? rawEnvBase : '')  // unchanged
 
-function ChatBot({ sessionId }) { // <-- ADDED: accept sessionId prop so requests can persist to a session
+export default function ChatBot({ sessionId }) { // <-- CHANGED: accept sessionId (prop already plumbed)
   const [input, setInput] = useState('')
   const [messages, setMessages] = useState(() => {
     const saved = localStorage.getItem('askFlaskMessages')
@@ -38,11 +38,46 @@ function ChatBot({ sessionId }) { // <-- ADDED: accept sessionId prop so request
     const saved = localStorage.getItem('askFlaskStream')
     return saved ? saved === 'true' : true
   })
-  const [rateRemaining, setRateRemaining] = useState(null)              // track X-RateLimit-Remaining (JSON + SSE)  // inline-change
+  const [rateRemaining, setRateRemaining] = useState(null)              // track X-RateLimit-Remaining (JSON + SSE)
 
   const chatEndRef = useRef(null)
   const chatWindowRef = useRef(null)                                    // scope Prism highlighting
 
+  // 🔹 NEW: Load server history whenever sessionId changes
+  useEffect(() => {
+    if (!sessionId) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/sessions/${sessionId}`, { credentials: 'same-origin' }) // <-- ADDED: load history from server
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const data = await res.json()
+        const serverMsgs = Array.isArray(data?.messages) ? data.messages : []
+        // Map server message shape to UI shape (role/content/timestamp) // <-- ADDED: normalize server payload
+        const mapped = serverMsgs.map(m => ({
+          role: m.role === 'assistant' ? 'assistant' : 'user',
+          content: m.content || '',
+          timestamp: (() => {
+            const iso = m.created_at
+            if (!iso) return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            const d = new Date(iso)
+            return isNaN(d.getTime())
+              ? new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+              : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          })(),
+        }))
+        if (!cancelled) setMessages(mapped)
+        // Keep LocalStorage in sync to preserve offline/refresh UX // <-- ADDED
+        if (!cancelled) localStorage.setItem('askFlaskMessages', JSON.stringify(mapped))
+      } catch {
+        if (!cancelled) setMessages([])
+      }
+    })()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId])
+
+  // Persist UI transcript (for refresh/offline continuity) // (existing)
   useEffect(() => {
     localStorage.setItem('askFlaskMessages', JSON.stringify(messages))
     scrollToBottom()
@@ -64,7 +99,7 @@ function ChatBot({ sessionId }) { // <-- ADDED: accept sessionId prop so request
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
 
-  // <-- ADDED: centralized error formatter for unified ErrorResponse shape
+  // Unified ErrorResponse -> friendly text // (existing)
   const formatError = (err) => {
     if (!err || typeof err !== 'object') return 'Unexpected error.'
     const code = err.code ?? 500
@@ -76,6 +111,29 @@ function ChatBot({ sessionId }) { // <-- ADDED: accept sessionId prop so request
       case 503: return `Service temporarily unavailable. Please retry.${requestId}`
       default: return `Unexpected error.${requestId}`
     }
+  }
+
+  // 🔹 NEW: Build a rolling context inside the single ChatRequest.message
+  // Backend only accepts one 'message' string (max 4000 chars), so we
+  // serialize recent turns as "Context:" lines. This makes the model remember
+  // prior details (e.g., your name) on the next turn. // <-- ADDED
+  const buildContextMessage = (userText) => {
+    const MAX_LEN = 4000 // enforced by ChatRequest DTO
+    const recent = messages.slice(-12) // last ~12 turns to keep things snappy
+    const ctxLines = recent.map(m => `${m.role === 'assistant' ? 'Assistant' : 'User'}: ${m.content}`)
+    const base = `User: ${userText}`
+    let ctx = ctxLines.join('\n')
+    let composed = ctx ? `Context:\n${ctx}\n\n${base}` : base
+    if (composed.length > MAX_LEN) {
+      const allowance = Math.max(0, MAX_LEN - base.length - 20) // small buffer
+      if (allowance > 0) {
+        ctx = ctx.slice(-allowance) // keep the most recent part of context
+        composed = `Context:\n${ctx}\n\n${base}`
+      } else {
+        composed = base.slice(0, MAX_LEN) // extreme case: very long user input
+      }
+    }
+    return composed
   }
 
   const sendMessage = async () => {
@@ -92,25 +150,29 @@ function ChatBot({ sessionId }) { // <-- ADDED: accept sessionId prop so request
     setInput('')
     setIsTyping(true)
 
-    if (streamEnabled && 'ReadableStream' in window) {                  // choose streaming path
-      await sendMessageStreaming(trimmed, timestamp)
+    if (streamEnabled && 'ReadableStream' in window) {
+      await sendMessageStreaming(trimmed, timestamp) // (existing)
     } else {
-      await sendMessageNonStreaming(trimmed, timestamp)
+      await sendMessageNonStreaming(trimmed, timestamp) // (existing)
     }
   }
 
   const sendMessageNonStreaming = async (trimmed, ts) => {               // non-stream flow
     try {
-      const payload = { message: trimmed, model, session_id: sessionId || undefined } // <-- CHANGED: include session_id when available
-      const res = await fetch(`${API_BASE}/api/chat`, { // prod → same-origin; dev → localhost:5555
+      const payload = {
+        message: buildContextMessage(trimmed), // <-- CHANGED: include rolling context
+        model,
+        session_id: sessionId || undefined,    // <-- existing: persist to active session
+      }
+      const res = await fetch(`${API_BASE}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload), // <-- CHANGED: send payload with session_id
+        body: JSON.stringify(payload),
       })
 
       // --- Rate limit header handling (JSON path) ---
-      const rl = res.headers.get('X-RateLimit-Remaining')               // read header
-      if (rl !== null) setRateRemaining(rl)                              // update state
+      const rl = res.headers.get('X-RateLimit-Remaining')
+      if (rl !== null) setRateRemaining(rl)
 
       const data = await res.json()
 
@@ -118,7 +180,6 @@ function ChatBot({ sessionId }) { // <-- ADDED: accept sessionId prop so request
       if (res.ok && typeof data?.reply === 'string') {
         botContent = data.reply
       } else {
-        // <-- CHANGED: parse unified ErrorResponse {error, code, request_id}
         botContent = `Error: ${formatError(data)}`
       }
 
@@ -150,16 +211,20 @@ function ChatBot({ sessionId }) { // <-- ADDED: accept sessionId prop so request
     ])
 
     try {
-      const payload = { message: trimmed, model, session_id: sessionId || undefined } // <-- CHANGED: include session_id when available
+      const payload = {
+        message: buildContextMessage(trimmed), // <-- CHANGED: include rolling context
+        model,
+        session_id: sessionId || undefined,    // <-- existing: persist to active session
+      }
       const res = await fetch(`${API_BASE}/api/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload), // <-- CHANGED: send payload with session_id
+        body: JSON.stringify(payload),
       })
 
       // --- Rate limit header handling (SSE path) ---
-      const rl = res.headers.get('X-RateLimit-Remaining')               // read header before streaming
-      if (rl !== null) setRateRemaining(rl)                              // update state
+      const rl = res.headers.get('X-RateLimit-Remaining')
+      if (rl !== null) setRateRemaining(rl)
 
       if (!res.ok || !res.body) {
         // If streaming not available or failed, gracefully fall back
@@ -215,7 +280,7 @@ function ChatBot({ sessionId }) { // <-- ADDED: accept sessionId prop so request
               })
             }
             if (evt.error) {
-              // <-- CHANGED: show friendly message using unified SSE error fields
+              // Friendly message using unified SSE error fields
               setMessages((prev) => {
                 const next = [...prev]
                 const idx = startIndex
@@ -253,6 +318,7 @@ function ChatBot({ sessionId }) { // <-- ADDED: accept sessionId prop so request
   }
 
   const clearChat = () => {
+    // For now, just clears UI + LocalStorage. Next step: create a new server session instead. // <-- NOTE
     setMessages([])
     localStorage.removeItem('askFlaskMessages')
   }
@@ -267,7 +333,6 @@ function ChatBot({ sessionId }) { // <-- ADDED: accept sessionId prop so request
 
       // Extract language from className like "language-js"
       const match = /language-(\w+)/.exec(className || '')
-      const language = match ? match[1] : undefined
       const rawCode = String(children || '')
 
       const onCopy = async () => {
@@ -374,5 +439,3 @@ function ChatBot({ sessionId }) { // <-- ADDED: accept sessionId prop so request
     </div>
   )
 }
-
-export default ChatBot
