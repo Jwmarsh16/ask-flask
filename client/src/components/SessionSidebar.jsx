@@ -137,6 +137,7 @@ export default function SessionSidebar({ sessionId, onSelectSession }) {
       const a = document.createElement('a')
       a.href = url
       a.download = filename
+      a.type = 'button' // <-- ADDED: explicit type
       document.body.appendChild(a)
       a.click()
       a.remove()
@@ -152,7 +153,7 @@ export default function SessionSidebar({ sessionId, onSelectSession }) {
     <div style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, padding: 12 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
         <strong>Sessions</strong>
-        <button onClick={handleCreate} title="Create a new session">＋</button> {/* <-- CHANGED: now creates on server */}
+        <button type="button" onClick={handleCreate} title="Create a new session">＋</button> {/* <-- CHANGED: now creates on server; ADDED: explicit button type */}
       </div>
       <ul style={{ listStyle: 'none', padding: 0, margin: 0, maxHeight: 360, overflowY: 'auto' }}>
         {sessions.map(s => (
@@ -173,8 +174,8 @@ export default function SessionSidebar({ sessionId, onSelectSession }) {
               </div>
             </div>
             <div style={{ display: 'flex', gap: 6 }}>
-              <button onClick={() => handleRename(s.id)} title="Rename">✎</button> {/* <-- CHANGED: local-only rename */}
-              <button onClick={() => handleDelete(s.id)} title="Delete">🗑</button> {/* <-- CHANGED: delete on server */}
+              <button type="button" onClick={() => handleRename(s.id)} title="Rename" aria-label="Rename session">✎</button> {/* <-- CHANGED: local-only rename; ADDED: explicit type + aria */}
+              <button type="button" onClick={() => handleDelete(s.id)} title="Delete" aria-label="Delete session">🗑</button> {/* <-- CHANGED: delete on server; ADDED: explicit type + aria */}
             </div>
           </li>
         ))}
@@ -183,8 +184,8 @@ export default function SessionSidebar({ sessionId, onSelectSession }) {
       <hr style={{ borderColor: 'rgba(255,255,255,0.08)', margin: '10px 0' }} />
 
       <div style={{ display: 'grid', gap: 6 }}>
-        <button disabled={disabled} onClick={() => handleExport('json')} title="Download JSON transcript">Export JSON</button> {/* <-- CHANGED: wire to API */}
-        <button disabled={disabled} onClick={() => handleExport('md')} title="Download Markdown transcript">Export Markdown</button> {/* <-- CHANGED: wire to API */}
+        <button type="button" disabled={disabled} onClick={() => handleExport('json')} title="Download JSON transcript">Export JSON</button> {/* <-- CHANGED: wire to API; ADDED: explicit type */}
+        <button type="button" disabled={disabled} onClick={() => handleExport('md')} title="Download Markdown transcript">Export Markdown</button> {/* <-- CHANGED: wire to API; ADDED: explicit type */}
       </div>
     </div>
   )
