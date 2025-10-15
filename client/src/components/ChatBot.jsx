@@ -24,7 +24,7 @@ const isDev = import.meta.env.DEV
 const isLocalhost = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(rawEnvBase)
 const API_BASE = isDev ? (rawEnvBase || 'http://localhost:5555') : (rawEnvBase && !isLocalhost ? rawEnvBase : '')  // unchanged
 
-export default function ChatBot({ sessionId }) { // <-- CHANGED: accept sessionId (prop already plumbed)
+export default function ChatBot({ sessionId }) { // accept sessionId (prop already plumbed)
   const [input, setInput] = useState('')
   const [messages, setMessages] = useState(() => {
     const saved = localStorage.getItem('askFlaskMessages')
@@ -43,17 +43,17 @@ export default function ChatBot({ sessionId }) { // <-- CHANGED: accept sessionI
   const chatEndRef = useRef(null)
   const chatWindowRef = useRef(null)                                    // scope Prism highlighting
 
-  // 🔹 NEW: Load server history whenever sessionId changes
+  // Load server history whenever sessionId changes (kept)
   useEffect(() => {
     if (!sessionId) return
     let cancelled = false
     ;(async () => {
       try {
-        const res = await fetch(`${API_BASE}/api/sessions/${sessionId}`, { credentials: 'same-origin' }) // <-- ADDED: load history from server
+        const res = await fetch(`${API_BASE}/api/sessions/${sessionId}`, { credentials: 'same-origin' })
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         const data = await res.json()
         const serverMsgs = Array.isArray(data?.messages) ? data.messages : []
-        // Map server message shape to UI shape (role/content/timestamp) // <-- ADDED: normalize server payload
+        // Map server message shape to UI shape (role/content/timestamp)
         const mapped = serverMsgs.map(m => ({
           role: m.role === 'assistant' ? 'assistant' : 'user',
           content: m.content || '',
@@ -67,7 +67,6 @@ export default function ChatBot({ sessionId }) { // <-- CHANGED: accept sessionI
           })(),
         }))
         if (!cancelled) setMessages(mapped)
-        // Keep LocalStorage in sync to preserve offline/refresh UX // <-- ADDED
         if (!cancelled) localStorage.setItem('askFlaskMessages', JSON.stringify(mapped))
       } catch {
         if (!cancelled) setMessages([])
@@ -77,14 +76,11 @@ export default function ChatBot({ sessionId }) { // <-- CHANGED: accept sessionI
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId])
 
-  // Persist UI transcript (for refresh/offline continuity) // (existing)
+  // Persist UI transcript + re-highlight code blocks (kept)
   useEffect(() => {
     localStorage.setItem('askFlaskMessages', JSON.stringify(messages))
-    scrollToBottom()
-    // Re-highlight code blocks whenever messages change
-    if (chatWindowRef.current) {
-      Prism.highlightAllUnder(chatWindowRef.current)
-    }
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (chatWindowRef.current) Prism.highlightAllUnder(chatWindowRef.current)
   }, [messages])
 
   useEffect(() => {
@@ -95,11 +91,7 @@ export default function ChatBot({ sessionId }) { // <-- CHANGED: accept sessionI
     localStorage.setItem('askFlaskStream', String(streamEnabled))       // persist toggle
   }, [streamEnabled])
 
-  const scrollToBottom = () => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }
-
-  // Unified ErrorResponse -> friendly text // (existing)
+  // Unified ErrorResponse -> friendly text (kept)
   const formatError = (err) => {
     if (!err || typeof err !== 'object') return 'Unexpected error.'
     const code = err.code ?? 500
@@ -113,37 +105,11 @@ export default function ChatBot({ sessionId }) { // <-- CHANGED: accept sessionI
     }
   }
 
-  // 🔹 NEW: Build a rolling context inside the single ChatRequest.message
-  // Backend only accepts one 'message' string (max 4000 chars), so we
-  // serialize recent turns as "Context:" lines. This makes the model remember
-  // prior details (e.g., your name) on the next turn. // <-- ADDED
-  const buildContextMessage = (userText) => {
-    const MAX_LEN = 4000 // enforced by ChatRequest DTO
-    const recent = messages.slice(-12) // last ~12 turns to keep things snappy
-    const ctxLines = recent.map(m => `${m.role === 'assistant' ? 'Assistant' : 'User'}: ${m.content}`)
-    const base = `User: ${userText}`
-    let ctx = ctxLines.join('\n')
-    let composed = ctx ? `Context:\n${ctx}\n\n${base}` : base
-    if (composed.length > MAX_LEN) {
-      const allowance = Math.max(0, MAX_LEN - base.length - 20) // small buffer
-      if (allowance > 0) {
-        ctx = ctx.slice(-allowance) // keep the most recent part of context
-        composed = `Context:\n${ctx}\n\n${base}`
-      } else {
-        composed = base.slice(0, MAX_LEN) // extreme case: very long user input
-      }
-    }
-    return composed
-  }
-
   const sendMessage = async () => {
     const trimmed = input.trim()
     if (!trimmed) return
 
-    const timestamp = new Date().toLocaleTimeString([], {
-      hour: '2-digit',
-      minute: '2-digit',
-    })
+    const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     const userMessage = { role: 'user', content: trimmed, timestamp }
 
     setMessages((prev) => [...prev, userMessage])
@@ -151,18 +117,18 @@ export default function ChatBot({ sessionId }) { // <-- CHANGED: accept sessionI
     setIsTyping(true)
 
     if (streamEnabled && 'ReadableStream' in window) {
-      await sendMessageStreaming(trimmed, timestamp) // (existing)
+      await sendMessageStreaming(trimmed, timestamp)
     } else {
-      await sendMessageNonStreaming(trimmed, timestamp) // (existing)
+      await sendMessageNonStreaming(trimmed, timestamp)
     }
   }
 
-  const sendMessageNonStreaming = async (trimmed, ts) => {               // non-stream flow
+  const sendMessageNonStreaming = async (trimmed, ts) => {
     try {
       const payload = {
-        message: buildContextMessage(trimmed), // <-- CHANGED: include rolling context
+        message: trimmed,                 // <-- CHANGED: send raw user message (no context stuffing)
         model,
-        session_id: sessionId || undefined,    // <-- existing: persist to active session
+        session_id: sessionId || undefined, // persist to active session (kept)
       }
       const res = await fetch(`${API_BASE}/api/chat`, {
         method: 'POST',
@@ -170,7 +136,7 @@ export default function ChatBot({ sessionId }) { // <-- CHANGED: accept sessionI
         body: JSON.stringify(payload),
       })
 
-      // --- Rate limit header handling (JSON path) ---
+      // Rate limit header (JSON path)
       const rl = res.headers.get('X-RateLimit-Remaining')
       if (rl !== null) setRateRemaining(rl)
 
@@ -186,10 +152,7 @@ export default function ChatBot({ sessionId }) { // <-- CHANGED: accept sessionI
       const botMessage = {
         role: 'assistant',
         content: botContent,
-        timestamp: new Date().toLocaleTimeString([], {
-          hour: '2-digit',
-          minute: '2-digit',
-        }),
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       }
       setMessages((prev) => [...prev, botMessage])
     } catch (_error) {
@@ -202,7 +165,7 @@ export default function ChatBot({ sessionId }) { // <-- CHANGED: accept sessionI
     }
   }
 
-  const sendMessageStreaming = async (trimmed, ts) => {                  // streaming flow
+  const sendMessageStreaming = async (trimmed, ts) => {
     // Insert a placeholder assistant message to progressively append tokens
     const startIndex = messages.length + 1 // index after pushing the user message above
     setMessages((prev) => [
@@ -212,9 +175,9 @@ export default function ChatBot({ sessionId }) { // <-- CHANGED: accept sessionI
 
     try {
       const payload = {
-        message: buildContextMessage(trimmed), // <-- CHANGED: include rolling context
+        message: trimmed,                 // <-- CHANGED: send raw user message (no context stuffing)
         model,
-        session_id: sessionId || undefined,    // <-- existing: persist to active session
+        session_id: sessionId || undefined, // persist to active session (kept)
       }
       const res = await fetch(`${API_BASE}/api/chat/stream`, {
         method: 'POST',
@@ -222,7 +185,7 @@ export default function ChatBot({ sessionId }) { // <-- CHANGED: accept sessionI
         body: JSON.stringify(payload),
       })
 
-      // --- Rate limit header handling (SSE path) ---
+      // Rate limit header (SSE path)
       const rl = res.headers.get('X-RateLimit-Remaining')
       if (rl !== null) setRateRemaining(rl)
 
@@ -271,10 +234,7 @@ export default function ChatBot({ sessionId }) { // <-- CHANGED: accept sessionI
                 const idx = startIndex
                 next[idx] = {
                   ...next[idx],
-                  timestamp: new Date().toLocaleTimeString([], {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  }),
+                  timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                 }
                 return next
               })
@@ -318,7 +278,7 @@ export default function ChatBot({ sessionId }) { // <-- CHANGED: accept sessionI
   }
 
   const clearChat = () => {
-    // For now, just clears UI + LocalStorage. Next step: create a new server session instead. // <-- NOTE
+    // For now, just clears UI + LocalStorage. Next step: create a new server session instead.
     setMessages([])
     localStorage.removeItem('askFlaskMessages')
   }
@@ -326,12 +286,8 @@ export default function ChatBot({ sessionId }) { // <-- CHANGED: accept sessionI
   // Memoized Markdown components so copy buttons don’t re-create unnecessarily
   const markdownComponents = useMemo(() => {
     function CodeBlock({ inline, className, children, ...props }) {
-      // If inline code, render simple <code>
-      if (inline) {
-        return <code className={className} {...props}>{children}</code>
-      }
+      if (inline) return <code className={className} {...props}>{children}</code>
 
-      // Extract language from className like "language-js"
       const match = /language-(\w+)/.exec(className || '')
       const rawCode = String(children || '')
 
@@ -355,7 +311,7 @@ export default function ChatBot({ sessionId }) { // <-- CHANGED: accept sessionI
             <span className="copy-default">Copy</span>
             <span className="copy-done">Copied!</span>
           </button>
-          <pre className={className}> {/* pass language class to <pre> so Prism theme rules apply */}
+          <pre className={className}>
             <code className={className} {...props}>
               {rawCode}
             </code>
@@ -364,9 +320,7 @@ export default function ChatBot({ sessionId }) { // <-- CHANGED: accept sessionI
       )
     }
 
-    return {
-      code: CodeBlock, // override code renderer for fenced blocks and inline code
-    }
+    return { code: CodeBlock }
   }, [])
 
   return (
@@ -399,7 +353,6 @@ export default function ChatBot({ sessionId }) { // <-- CHANGED: accept sessionI
           <div key={idx} className={`message ${msg.role === 'user' ? 'user' : 'bot'}`}>
             <div className="message-content">
               {msg.role === 'assistant' ? (
-                // Assistant replies now render as Markdown (safe by default; no raw HTML)
                 <ReactMarkdown
                   className="markdown"
                   remarkPlugins={[remarkGfm]}
@@ -408,7 +361,6 @@ export default function ChatBot({ sessionId }) { // <-- CHANGED: accept sessionI
                   {msg.content || ''}
                 </ReactMarkdown>
               ) : (
-                // User messages remain plain text for now
                 <span>{msg.content}</span>
               )}
             </div>
