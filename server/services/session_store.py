@@ -115,21 +115,21 @@ def append_message(session_id: str, role: str, content: str, tokens: Optional[in
     return m
 
 
-def rename_session(session_id: str, title: str) -> Session:  # <-- ADDED: service to support PATCH /api/sessions/:id
+def rename_session(session_id: str, title: str) -> Session:  # <-- ADDED earlier: service to support PATCH /api/sessions/:id
     """
     Rename a session. Expects a validated, non-empty title (DTO enforces this).
-    Updates updated_at; last_activity is computed from messages and not stored.  # <-- ADDED (explanation)
+    Updates updated_at; last_activity is computed from messages and not stored.
     """
     s = db.session.get(Session, session_id)
     if not s:
-        raise ValueError("session_not_found")  # <-- ADDED: align with existing error signaling
+        raise ValueError("session_not_found")
 
-    normalized = title.strip()  # <-- ADDED: defense-in-depth; DTO already trims
+    normalized = title.strip()  # defense-in-depth; DTO already trims
     s.title = normalized
-    s.updated_at = db.func.now()  # <-- ADDED: explicitly bump updated_at
+    s.updated_at = db.func.now()  # explicitly bump updated_at
 
     db.session.commit()
-    db.session.refresh(s)  # <-- ADDED: ensure timestamps reflect DB values
+    db.session.refresh(s)  # ensure timestamps reflect DB values
     return s
 
 
@@ -188,3 +188,32 @@ def export_session(session_id: str, fmt: str) -> Tuple[str, bytes, str]:
         lines.append("")
     md = "\n".join(lines).encode("utf-8")
     return f"session_{s.id}.md", md, "text/markdown; charset=utf-8"
+
+
+# ------------------------- NEW: Memory helpers -------------------------------
+
+def get_memory(session_id: str) -> Optional[str]:  # <-- ADDED: fetch pinned memory for a session
+    """
+    Return the pinned session memory (compact summary) or None if not set.
+    """
+    s = db.session.get(Session, session_id)
+    if not s:
+        raise ValueError("session_not_found")  # <-- ADDED: align error contract used elsewhere
+    return s.memory  # type: ignore[attr-defined]  # <-- ADDED: column added in models/migration
+
+
+def update_memory(session_id: str, memory_text: Optional[str]) -> Session:  # <-- ADDED: set/clear pinned memory
+    """
+    Update (or clear) the pinned session memory. Returns the updated Session.
+    Callers should perform summarization/truncation before invoking this setter.
+    """
+    s = db.session.get(Session, session_id)
+    if not s:
+        raise ValueError("session_not_found")  # <-- ADDED
+
+    s.memory = memory_text  # type: ignore[attr-defined]  # <-- ADDED
+    s.updated_at = db.func.now()  # type: ignore[assignment]  # <-- ADDED: touch parent timestamp
+
+    db.session.commit()  # <-- ADDED: persist changes
+    db.session.refresh(s)  # <-- ADDED: reflect DB-side computed fields
+    return s  # <-- ADDED
