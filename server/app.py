@@ -174,7 +174,6 @@ register_error_handlers(app)
 register_security_headers(app)
 # -------------------------------------------------------------------------
 
-
 def _error_payload(message: str, code: int):
     """Unified error body for JSON/SSE surfaces."""
     return {
@@ -235,6 +234,80 @@ def _ensure_sessions_service():
     return None
 # -------------------------------------------------------------------------
 
+# ------------------- NEW: Session memory config & helpers ------------------
+def _memory_enabled() -> bool:
+    """Feature flag for pinned memory (default: true)."""  # inline-change
+    return os.getenv("CHAT_MEMORY_ENABLED", "true").lower() not in ("0", "false", "no")  # inline-change
+
+def _memory_model(default_chat_model: str) -> str:
+    """Model to use for memory summarization (default: gpt-3.5-turbo)."""  # inline-change
+    return os.getenv("CHAT_MEMORY_MODEL", "gpt-3.5-turbo") or default_chat_model  # inline-change
+
+def _memory_max_chars() -> int:
+    """Hard cap on stored memory size to bound token cost (default: 2000 chars)."""  # inline-change
+    try:
+        return max(200, int(os.getenv("CHAT_MEMORY_MAX_CHARS", "2000")))  # floor at 200  # inline-change
+    except Exception:
+        return 2000  # inline-change
+
+def _summarize_and_merge_memory(session_id: str, old_memory: str | None, last_user: str, last_assistant: str, chat_model: str):
+    """
+    Merge old memory with the latest turn using a lightweight LLM pass.  # inline-change
+    Failures are logged but never break the request.                        # inline-change
+    """
+    if not _memory_enabled():  # feature flag  # inline-change
+        return
+
+    err = _ensure_sessions_service()
+    if err:
+        return  # cannot access store; skip silently  # inline-change
+
+    try:
+        max_chars = _memory_max_chars()  # inline-change
+        # System prompt keeps summarization compact and de-duplicated  # inline-change
+        sys_prompt = (
+            "You are a compact session memory manager. Merge the old memory with the latest "
+            "user/assistant turn into a concise, de-duplicated bullet list of persistent facts, "
+            "preferences, goals, and decisions. Omit chit-chat, speculation, and ephemeral details. "
+            f"Keep the result under {max_chars} characters. Return plain text."
+        )
+        # Build summarizer messages  # inline-change
+        user_block = (
+            f"Old memory:\n{old_memory or '(none)'}\n\n"
+            f"Latest turn:\nUser: {last_user}\nAssistant: {last_assistant}\n\n"
+            "Return the UPDATED MEMORY ONLY."
+        )
+        messages = [
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": user_block},
+        ]
+        mem_model = _memory_model(chat_model)  # inline-change
+        new_mem = (openai_service.complete(model=mem_model, messages=messages) or "").strip()  # inline-change
+        if not new_mem:
+            new_mem = old_memory or ""  # don't erase on empty  # inline-change
+
+        # Hard cap, but be graceful if summarizer exceeded budget  # inline-change
+        if len(new_mem) > max_chars:
+            new_mem = new_mem[:max_chars]
+
+        session_store.update_memory(session_id, new_mem)  # persist  # inline-change
+        current_app.logger.info(  # observability breadcrumb  # inline-change
+            "session.memory.updated",
+            extra={
+                "event": "session.memory.updated",
+                "session_id": session_id,
+                "chars": len(new_mem),
+                "used_model": mem_model,
+            },
+        )
+    except Exception:
+        current_app.logger.warning(  # never fail the request on memory issues  # inline-change
+            "session.memory.update_failed",
+            exc_info=True,
+            extra={"event": "session.memory.update_failed", "session_id": session_id},
+        )
+# --------------------------------------------------------------------------
+
 # 🔹 helper to build OpenAI messages from DB history when session_id is provided
 def _build_openai_messages_with_context(user_text: str, model: str, session_id: str | None):
     """
@@ -245,6 +318,24 @@ def _build_openai_messages_with_context(user_text: str, model: str, session_id: 
     MAX_TURNS = int(os.getenv("CHAT_CONTEXT_MAX_TURNS", "12"))  # <-- env-tunable context window
 
     msgs = [{"role": "system", "content": SYSTEM_PROMPT}]
+
+    # ---- NEW: prepend pinned session memory when enabled & present ----
+    if _memory_enabled() and session_id and db is not None and ChatSession is not None:  # inline-change
+        if _ensure_sessions_service() is None:
+            try:
+                pinned = session_store.get_memory(session_id)  # inline-change
+                if pinned:
+                    msgs.append({  # second system message carries compact memory  # inline-change
+                        "role": "system",
+                        "content": f"Session memory (pinned):\n{pinned}",
+                    })
+            except Exception:
+                current_app.logger.warning(  # non-fatal  # inline-change
+                    "sessions.memory.load_failed",
+                    exc_info=True,
+                    extra={"event": "sessions.memory.load_failed", "session_id": session_id},
+                )
+                # continue without memory  # inline-change
 
     if session_id and db is not None and ChatSession is not None:
         if _ensure_sessions_service() is None:
@@ -302,7 +393,7 @@ def chat():
         payload["details"] = _validation_details(ve)  # <-- CHANGED: JSON-safe details
         return jsonify(payload), 400
 
-    # Build messages from DB context (if any) + current user
+    # Build messages from DB context (if any) + current user (+ memory if enabled)
     messages = _build_openai_messages_with_context(req.message, req.model, req.session_id)
 
     # Optional session persistence (guarded)
@@ -322,8 +413,21 @@ def chat():
                 # append after building context (order avoids double-counting)
                 session_store.append_message(req.session_id, "user", req.message)
                 session_store.append_message(req.session_id, "assistant", reply_text)
+                # ---- NEW: update pinned memory after successful turn ----
+                _summarize_and_merge_memory(  # fire-and-forget; errors logged  # inline-change
+                    session_id=req.session_id,
+                    old_memory=session_store.get_memory(req.session_id),
+                    last_user=req.message,
+                    last_assistant=reply_text,
+                    chat_model=req.model,
+                )
             except Exception:
-                pass
+                # Persistence or memory update issues must not break the response
+                current_app.logger.warning(  # inline-change
+                    "session.persist_or_memory.failed",
+                    exc_info=True,
+                    extra={"event": "session.persist_or_memory.failed", "session_id": req.session_id},
+                )
 
         resp = ChatResponse(reply=reply_text)
         return jsonify(resp.model_dump())
@@ -378,7 +482,7 @@ def chat_stream():
         extra={"event": "openai.chat.stream.start", "request_id": getattr(g, "request_id", None), "model": req.model},
     )
 
-    # Build messages from DB context (if any) + current user
+    # Build messages from DB context (if any) + current user (+ memory if enabled)
     messages = _build_openai_messages_with_context(req.message, req.model, req.session_id)
 
     @stream_with_context
@@ -407,9 +511,22 @@ def chat_stream():
                 try:
                     # append both user and assistant after stream completes
                     session_store.append_message(req.session_id, "user", req.message)
-                    session_store.append_message(req.session_id, "assistant", "".join(assembled))
+                    assistant_text = "".join(assembled)
+                    session_store.append_message(req.session_id, "assistant", assistant_text)
+                    # ---- NEW: update pinned memory after successful stream ----
+                    _summarize_and_merge_memory(  # fire-and-forget; errors logged  # inline-change
+                        session_id=req.session_id,
+                        old_memory=session_store.get_memory(req.session_id),
+                        last_user=req.message,
+                        last_assistant=assistant_text,
+                        chat_model=req.model,
+                    )
                 except Exception:
-                    pass
+                    current_app.logger.warning(  # inline-change
+                        "session.persist_or_memory.failed",
+                        exc_info=True,
+                        extra={"event": "session.persist_or_memory.failed", "session_id": req.session_id},
+                    )
 
             current_app.logger.info(
                 "openai.chat.stream.complete",
