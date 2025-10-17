@@ -6,12 +6,12 @@ import { useEffect, useRef, useState } from 'react' // <-- CHANGED: add useRef f
  * - Lists sessions from GET /api/sessions
  * - Create via POST /api/sessions
  * - Delete via DELETE /api/sessions/:id
+ * - Rename via PATCH /api/sessions/:id                           // <-- CHANGED: now server-backed rename
  * - Export via GET /api/sessions/:id/export?format=json|md
  *
  * Notes:
  * - We still persist ONLY the active session id in LocalStorage
  *   under 'askFlaskSessionId' to survive reloads.
- * - Rename remains local-only (no backend endpoint yet). // <-- CHANGED: clarify behavior
  */
 export default function SessionSidebar({ sessionId, onSelectSession }) {
   const [sessions, setSessions] = useState([]) // <-- CHANGED: now sourced from backend
@@ -113,11 +113,31 @@ export default function SessionSidebar({ sessionId, onSelectSession }) {
   }
 
   const handleRename = async (id) => {
-    // No backend rename endpoint in current contract; keep local only for now. // <-- CHANGED: local-only rename
-    const title = prompt('Session title:')
-    if (title === null) return
+    // Server-backed rename (PATCH) with optimistic UI + revert on failure     // <-- CHANGED: implement PATCH
+    const current = sessions.find(s => s.id === id)
+    const proposed = prompt('Session title:', (current?.title ?? 'Untitled')) // default to current title
+    if (proposed === null) return // user cancelled
+
+    const title = proposed.trim() // trim before validation                     // <-- ADDED: trim
+    if (title.length === 0) { alert('Title cannot be empty.'); return }        // <-- ADDED: client guard
+    if (title.length > 200) { alert('Title must be 200 characters or fewer.'); return } // <-- ADDED: length guard
+    if (title === (current?.title ?? '')) return // no-op if unchanged          // <-- ADDED: skip unchanged
+
+    const snapshot = sessions // keep for revert                                // <-- ADDED: snapshot for revert
+    // Optimistic update                                                        // <-- ADDED: optimistic UI
     setSessions(prev => prev.map(s => (s.id === id ? { ...s, title } : s)))
-    // TODO: When a rename route exists (e.g., PATCH /api/sessions/:id), call it here. // <-- TODO
+
+    try {
+      const updated = await api(`/sessions/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ title }), // server also trims/validates
+      })
+      // Use server canonical response (in case of any normalization)          // <-- ADDED: sync with server
+      setSessions(prev => prev.map(s => (s.id === id ? { ...s, title: updated.title } : s)))
+    } catch (e) {
+      setSessions(snapshot) // revert                                          // <-- ADDED: revert on error
+      alert(`Failed to rename session: ${e.message}`) // surface error          // <-- ADDED
+    }
   }
 
   const handleExport = async (format) => {
@@ -174,7 +194,7 @@ export default function SessionSidebar({ sessionId, onSelectSession }) {
               </div>
             </div>
             <div style={{ display: 'flex', gap: 6 }}>
-              <button type="button" onClick={() => handleRename(s.id)} title="Rename" aria-label="Rename session">✎</button> {/* <-- CHANGED: local-only rename; ADDED: explicit type + aria */}
+              <button type="button" onClick={() => handleRename(s.id)} title="Rename" aria-label="Rename session">✎</button> {/* <-- CHANGED: now calls PATCH; ADDED: explicit type + aria */}
               <button type="button" onClick={() => handleDelete(s.id)} title="Delete" aria-label="Delete session">🗑</button> {/* <-- CHANGED: delete on server; ADDED: explicit type + aria */}
             </div>
           </li>

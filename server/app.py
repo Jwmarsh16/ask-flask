@@ -39,6 +39,7 @@ if __package__ in (None, ""):  # top-level launch: gunicorn --chdir server app:a
         ErrorResponse,
         CreateSessionRequest,    # DTOs for sessions
         AppendMessageRequest,
+        UpdateSessionRequest,    # <-- ADDED: DTO for PATCH /api/sessions/:id
     )
 
     # --- Robust import of OpenAIService with fallback shim ---
@@ -77,6 +78,7 @@ else:  # package launch: gunicorn server.app:app
         ErrorResponse,
         CreateSessionRequest,    # DTOs for sessions
         AppendMessageRequest,
+        UpdateSessionRequest,    # <-- ADDED: DTO for PATCH /api/sessions/:id
     )
     try:
         from .services import openai_client as _openai_client_mod
@@ -181,6 +183,29 @@ def _error_payload(message: str, code: int):
         "request_id": getattr(g, "request_id", None),
     }
 
+# ------------------- NEW: make Pydantic errors JSON-safe -------------------
+def _validation_details(exc: ValidationError):  # <-- ADDED: sanitize pydantic v2 errors for JSON
+    """
+    Pydantic v2 can include Exception instances in error 'ctx', which Flask's
+    JSON encoder cannot serialize. Convert any BaseException values to strings.
+    """
+    try:
+        details = []
+        for err in exc.errors():
+            # err is already a dict
+            ctx = err.get("ctx")
+            if isinstance(ctx, dict):
+                err = err.copy()
+                err["ctx"] = {
+                    k: (str(v) if isinstance(v, BaseException) else v) for k, v in ctx.items()
+                }
+            details.append(err)
+        return details
+    except Exception:
+        # Fallback: don't let error serialization cause a 500
+        return [{"msg": str(exc)}]
+# --------------------------------------------------------------------------
+
 # ------------------- Sessions module guard (ENHANCED) ----------------------
 def _ensure_sessions_service():
     """
@@ -210,23 +235,23 @@ def _ensure_sessions_service():
     return None
 # -------------------------------------------------------------------------
 
-# 🔹 NEW: helper to build OpenAI messages from DB history when session_id is provided
+# 🔹 helper to build OpenAI messages from DB history when session_id is provided
 def _build_openai_messages_with_context(user_text: str, model: str, session_id: str | None):
     """
     Compose the messages array for OpenAI using prior DB turns (if any) plus the
     current user message. Limits the window to the last N turns to control cost.
     """
     SYSTEM_PROMPT = "You are a helpful assistant."
-    MAX_TURNS = int(os.getenv("CHAT_CONTEXT_MAX_TURNS", "12"))  # <-- ADDED: env-tunable context window
+    MAX_TURNS = int(os.getenv("CHAT_CONTEXT_MAX_TURNS", "12"))  # <-- env-tunable context window
 
     msgs = [{"role": "system", "content": SYSTEM_PROMPT}]
 
     if session_id and db is not None and ChatSession is not None:
         if _ensure_sessions_service() is None:
             try:
-                # Get prior messages ascending by created_at; slice to recent window // <-- ADDED
+                # Get prior messages ascending by created_at; slice to recent window
                 prior = session_store.get_session_messages(session_id) or []
-                # Keep only the most recent 2*MAX_TURNS items (~MAX_TURNS exchanges) // <-- ADDED
+                # Keep only the most recent 2*MAX_TURNS items (~MAX_TURNS exchanges)
                 if len(prior) > MAX_TURNS * 2:
                     prior = prior[-(MAX_TURNS * 2):]
                 for m in prior:
@@ -243,7 +268,7 @@ def _build_openai_messages_with_context(user_text: str, model: str, session_id: 
                 # Fall through with no prior context
                 pass
 
-    # Always append the current user message last // <-- ADDED
+    # Always append the current user message last
     msgs.append({"role": "user", "content": user_text})
     return msgs
 
@@ -274,11 +299,11 @@ def chat():
         req = ChatRequest(message=incoming_message, model=model, session_id=data.get("session_id"))
     except ValidationError as ve:
         payload = _error_payload("Validation error", 400)
-        payload["details"] = ve.errors()
+        payload["details"] = _validation_details(ve)  # <-- CHANGED: JSON-safe details
         return jsonify(payload), 400
 
-    # 🔹 CHANGED: Build messages from DB context (if any) + current user // replaces fixed 2-message array
-    messages = _build_openai_messages_with_context(req.message, req.model, req.session_id)  # <-- CHANGED
+    # Build messages from DB context (if any) + current user
+    messages = _build_openai_messages_with_context(req.message, req.model, req.session_id)
 
     # Optional session persistence (guarded)
     session_exists = False
@@ -294,7 +319,7 @@ def chat():
         reply_text = openai_service.complete(model=req.model, messages=messages)
         if session_exists:
             try:
-                # 🔹 CHANGED: append after building context (order avoids double-counting) // <-- CHANGED
+                # append after building context (order avoids double-counting)
                 session_store.append_message(req.session_id, "user", req.message)
                 session_store.append_message(req.session_id, "assistant", reply_text)
             except Exception:
@@ -345,7 +370,7 @@ def chat_stream():
         req = ChatRequest(message=incoming_message, model=model, session_id=data.get("session_id"))
     except ValidationError as ve:
         payload = _error_payload("Validation error", 400)
-        payload["details"] = ve.errors()
+        payload["details"] = _validation_details(ve)  # <-- CHANGED: JSON-safe details
         return jsonify(payload), 400
 
     current_app.logger.info(
@@ -353,8 +378,8 @@ def chat_stream():
         extra={"event": "openai.chat.stream.start", "request_id": getattr(g, "request_id", None), "model": req.model},
     )
 
-    # 🔹 CHANGED: Build messages from DB context (if any) + current user // replaces fixed 2-message array
-    messages = _build_openai_messages_with_context(req.message, req.model, req.session_id)  # <-- CHANGED
+    # Build messages from DB context (if any) + current user
+    messages = _build_openai_messages_with_context(req.message, req.model, req.session_id)
 
     @stream_with_context
     def generate():
@@ -363,7 +388,7 @@ def chat_stream():
         assembled = []
         session_exists = False
 
-        # Determine if session exists (we append after streaming completes) // <-- CHANGED: no pre-append
+        # Determine if session exists (we append after streaming completes)
         if req.session_id and db is not None and ChatSession is not None:
             if _ensure_sessions_service() is None:
                 try:
@@ -380,7 +405,7 @@ def chat_stream():
 
             if session_exists:
                 try:
-                    # 🔹 CHANGED: append both user and assistant after stream completes // <-- CHANGED
+                    # append both user and assistant after stream completes
                     session_store.append_message(req.session_id, "user", req.message)
                     session_store.append_message(req.session_id, "assistant", "".join(assembled))
                 except Exception:
@@ -424,7 +449,7 @@ def chat_stream():
 @app.route("/api/sessions", methods=["POST"])
 def create_session_route():
     """Create a new chat session (optional title)."""
-    err = _ensure_sessions_service()                 # <-- CHANGED: use enhanced guard
+    err = _ensure_sessions_service()                 # use enhanced guard
     if err:
         return err
 
@@ -433,7 +458,7 @@ def create_session_route():
         req = CreateSessionRequest(**data)
     except ValidationError as ve:
         payload = _error_payload("Validation error", 400)
-        payload["details"] = ve.errors()
+        payload["details"] = _validation_details(ve)  # <-- CHANGED: JSON-safe details
         return jsonify(payload), 400
 
     try:
@@ -454,7 +479,7 @@ def create_session_route():
 @app.route("/api/sessions", methods=["GET"])
 def list_sessions_route():
     """List sessions with last activity."""
-    err = _ensure_sessions_service()                 # <-- CHANGED: use enhanced guard
+    err = _ensure_sessions_service()                 # use enhanced guard
     if err:
         return err
 
@@ -478,7 +503,7 @@ def list_sessions_route():
 @app.route("/api/sessions/<session_id>", methods=["GET"])
 def get_session_route(session_id: str):
     """Get messages for a session (ascending by created_at)."""
-    err = _ensure_sessions_service()                 # <-- CHANGED
+    err = _ensure_sessions_service()                 # guard
     if err:
         return err
 
@@ -512,7 +537,7 @@ def get_session_route(session_id: str):
 @app.route("/api/sessions/<session_id>/messages", methods=["POST"])
 def append_message_route(session_id: str):
     """Append a single message to a session."""
-    err = _ensure_sessions_service()                 # <-- CHANGED
+    err = _ensure_sessions_service()                 # guard
     if err:
         return err
 
@@ -528,7 +553,7 @@ def append_message_route(session_id: str):
         req = AppendMessageRequest(**data)
     except ValidationError as ve:
         payload = _error_payload("Validation error", 400)
-        payload["details"] = ve.errors()
+        payload["details"] = _validation_details(ve)  # <-- CHANGED: JSON-safe details
         return jsonify(payload), 400
 
     try:
@@ -548,10 +573,53 @@ def append_message_route(session_id: str):
         return jsonify(_error_payload(str(e), 500)), 500
 
 
+@app.route("/api/sessions/<session_id>", methods=["PATCH"])
+def rename_session_route(session_id: str):  # PATCH endpoint for renaming sessions
+    """Rename a session (validates title and persists)."""
+    err = _ensure_sessions_service()                 # ensure service importable
+    if err:
+        return err
+
+    if db is None or ChatSession is None:            # guard if models unavailable
+        return jsonify(_error_payload("Sessions not available", 500)), 500
+
+    data = request.get_json(silent=True) or {}
+    try:
+        req = UpdateSessionRequest(**data)           # validate & normalize title
+    except ValidationError as ve:
+        payload = _error_payload("Validation error", 400)
+        payload["details"] = _validation_details(ve)  # <-- CHANGED: JSON-safe details
+        return jsonify(payload), 400
+
+    try:
+        s = session_store.rename_session(session_id, req.title)  # service call
+        current_app.logger.info(
+            "session.rename",
+            extra={"event": "session.rename", "session_id": session_id, "title": req.title},
+        )
+        # For consistency with create route, return id/title/created_at/updated_at
+        return jsonify({
+            "id": s.id,
+            "title": s.title,
+            "created_at": (s.created_at.isoformat() if getattr(s, "created_at", None) else None),
+            "updated_at": (s.updated_at.isoformat() if getattr(s, "updated_at", None) else None),
+        }), 200
+    except ValueError:
+        # Service raises ValueError('session_not_found') for missing id
+        return jsonify(_error_payload("Session not found", 404)), 404
+    except Exception as e:
+        current_app.logger.error(
+            "session.rename.error",
+            exc_info=True,
+            extra={"event": "session.rename", "session_id": session_id},
+        )
+        return jsonify(_error_payload(str(e), 500)), 500
+
+
 @app.route("/api/sessions/<session_id>", methods=["DELETE"])
 def delete_session_route(session_id: str):
     """Delete a session and cascade messages."""
-    err = _ensure_sessions_service()                 # <-- CHANGED
+    err = _ensure_sessions_service()                 # guard
     if err:
         return err
 
@@ -571,7 +639,7 @@ def delete_session_route(session_id: str):
 @app.route("/api/sessions/<session_id>/export", methods=["GET"])
 def export_session_route(session_id: str):
     """Export a session as JSON or Markdown (download)."""
-    err = _ensure_sessions_service()                 # <-- CHANGED
+    err = _ensure_sessions_service()                 # guard
     if err:
         return err
 

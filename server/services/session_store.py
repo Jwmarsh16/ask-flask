@@ -115,6 +115,24 @@ def append_message(session_id: str, role: str, content: str, tokens: Optional[in
     return m
 
 
+def rename_session(session_id: str, title: str) -> Session:  # <-- ADDED: service to support PATCH /api/sessions/:id
+    """
+    Rename a session. Expects a validated, non-empty title (DTO enforces this).
+    Updates updated_at; last_activity is computed from messages and not stored.  # <-- ADDED (explanation)
+    """
+    s = db.session.get(Session, session_id)
+    if not s:
+        raise ValueError("session_not_found")  # <-- ADDED: align with existing error signaling
+
+    normalized = title.strip()  # <-- ADDED: defense-in-depth; DTO already trims
+    s.title = normalized
+    s.updated_at = db.func.now()  # <-- ADDED: explicitly bump updated_at
+
+    db.session.commit()
+    db.session.refresh(s)  # <-- ADDED: ensure timestamps reflect DB values
+    return s
+
+
 def delete_session(session_id: str) -> bool:
     s = db.session.get(Session, session_id)
     if not s:

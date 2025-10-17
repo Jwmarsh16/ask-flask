@@ -75,6 +75,18 @@ def _export_session(client, session_id, fmt):
     return resp
 
 
+def _rename_session(client, session_id, title):  # <-- ADDED: helper for PATCH rename
+    """Rename a session via PATCH and return its JSON payload."""
+    resp = client.patch(
+        f"/api/sessions/{session_id}",
+        data=json.dumps({"title": title}),
+        content_type="application/json",
+    )
+    assert resp.status_code == 200, f"Rename session failed: {resp.data}"  # <-- ADDED
+    _assert_common_headers(resp)  # <-- ADDED
+    return resp.get_json()
+
+
 def _assert_common_headers(resp):
     """Common headers enforced by security/observability layers."""
     assert resp.headers.get("X-Request-ID"), "Missing X-Request-ID header"  # <-- request correlation
@@ -197,3 +209,69 @@ def test_400_invalid_append_payload(client):
     assert body2.get("code") == 400
 
     _delete_session(client, sid)
+
+
+# ---------------------------
+# NEW: PATCH rename tests
+# ---------------------------
+
+def test_patch_rename_happy_path(client):  # <-- ADDED
+    s = _create_session(client, title="Old Title")
+    sid = s["id"]
+
+    new_title = "  New Title  "  # leading/trailing spaces should be trimmed  # <-- ADDED
+    body = _rename_session(client, sid, new_title)
+    assert body["title"] == "New Title"  # trimmed result                      # <-- ADDED
+
+    # Fetch to confirm persistence                                               # <-- ADDED
+    fetched = _get_session(client, sid)
+    assert fetched["title"] == "New Title"
+
+    _delete_session(client, sid)
+
+
+def test_patch_rename_validation_errors(client):  # <-- ADDED
+    s = _create_session(client)
+    sid = s["id"]
+
+    # Empty title                                                                # <-- ADDED
+    resp1 = client.patch(
+        f"/api/sessions/{sid}",
+        data=json.dumps({"title": ""}),
+        content_type="application/json",
+    )
+    assert resp1.status_code == 400
+    _assert_common_headers(resp1)
+
+    # Whitespace-only title                                                      # <-- ADDED
+    resp2 = client.patch(
+        f"/api/sessions/{sid}",
+        data=json.dumps({"title": "   "}),
+        content_type="application/json",
+    )
+    assert resp2.status_code == 400
+    _assert_common_headers(resp2)
+
+    # Overlong title (>200 chars)                                                # <-- ADDED
+    resp3 = client.patch(
+        f"/api/sessions/{sid}",
+        data=json.dumps({"title": "x" * 201}),
+        content_type="application/json",
+    )
+    assert resp3.status_code == 400
+    _assert_common_headers(resp3)
+
+    _delete_session(client, sid)
+
+
+def test_patch_rename_not_found(client):  # <-- ADDED
+    fake = str(uuid.uuid4())
+    resp = client.patch(
+        f"/api/sessions/{fake}",
+        data=json.dumps({"title": "Does Not Exist"}),
+        content_type="application/json",
+    )
+    assert resp.status_code == 404
+    _assert_common_headers(resp)
+    body = resp.get_json()
+    assert isinstance(body, dict) and body.get("code") == 404
