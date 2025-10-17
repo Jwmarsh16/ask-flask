@@ -1,1 +1,49 @@
+# .gitignore (repo root)
+
+# Python virtual envs
+.venv/
+venv/
+env/
+
+# Python cache & build
+__pycache__/
+*.py[cod]
+*.so
+.build/
+dist/
+.eggs/
+*.egg-info/
+
+# Test & coverage
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Local databases & app state
+instance/
+server/instance/
+*.db
+
+# Environment files (keep server/.env local only)
 .env
+server/.env
+
+# Node / Vite (client)
+client/node_modules/
+client/.vite/
+client/dist/
+npm-debug.log*
+yarn-error.log*
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# virtualenvs (root and nested)
+.venv/
+**/.venv/
+venv/
+**/venv/

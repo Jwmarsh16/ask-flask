@@ -27,6 +27,11 @@ client/.env.*
 
 
 # .gitignore (repo root)
+# virtualenvs (root and nested)
+.venv/
+**/.venv/
+venv/
+**/venv/
 
 # Python virtual envs
 .venv/
