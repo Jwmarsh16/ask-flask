@@ -17,6 +17,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     event,
+    Text,  # NEW: for Session.memory pinned summary  # inline-change
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -43,6 +44,7 @@ class Session(db.Model):
 
     id = Column(String(36), primary_key=True, default=_uuid)  # string UUID PK
     title = Column(String, nullable=True)
+    memory = Column(Text, nullable=True)  # NEW: pinned session memory (compact summary)  # inline-change
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
