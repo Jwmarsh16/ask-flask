@@ -1,0 +1,24 @@
+{
+  "docs": [
+    {
+      "id": "HR-Leave-Policy",
+      "department": "HR",
+      "text": "Paid Time Off (PTO) accrues bi-weekly. Sick leave is tracked separately. For extended medical leave, employees file an FMLA request. Managers approve PTO in the HRIS tool."
+    },
+    {
+      "id": "Security-PII-Guide",
+      "department": "Security",
+      "text": "PII includes names, emails, phone numbers, SSNs, and financial data. Redact PII before indexing content. Use allow-lists for external tool calls."
+    },
+    {
+      "id": "Oncall-Runbook",
+      "department": "SRE",
+      "text": "For Sev2+ incidents: page on-call, post status in #incidents, and start a Zoom bridge. Record timeline, owners, and mitigations. Follow postmortem template within 48 hours."
+    },
+    {
+      "id": "RAG-Best-Practices",
+      "department": "AI",
+      "text": "Chunk with overlap (200-400 tokens). Store source and ACL metadata. Use MMR and optional re-rankers. Return citations and track groundedness with offline evals."
+    }
+  ]
+}
