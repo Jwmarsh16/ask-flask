@@ -41,6 +41,7 @@ if __package__ in (None, ""):  # top-level launch: gunicorn --chdir server app:a
         AppendMessageRequest,
         UpdateSessionRequest,    # <-- ADDED: DTO for PATCH /api/sessions/:id
     )
+    from routes.rag import rag_bp  # <-- NEW: import RAG blueprint for top-level launch
 
     # --- Robust import of OpenAIService with fallback shim ---
     try:
@@ -80,6 +81,7 @@ else:  # package launch: gunicorn server.app:app
         AppendMessageRequest,
         UpdateSessionRequest,    # <-- ADDED: DTO for PATCH /api/sessions/:id
     )
+    from .routes.rag import rag_bp  # <-- NEW: import RAG blueprint for package launch
     try:
         from .services import openai_client as _openai_client_mod
         OpenAIService = getattr(_openai_client_mod, "OpenAIService", None)
@@ -172,6 +174,9 @@ register_request_id(app)
 register_latency_logging(app)
 register_error_handlers(app)
 register_security_headers(app)
+
+# ---------------------- NEW: Register RAG blueprint -----------------------
+app.register_blueprint(rag_bp, url_prefix="/api/rag")  # <-- NEW: expose /api/rag/* routes
 # -------------------------------------------------------------------------
 
 def _error_payload(message: str, code: int):
