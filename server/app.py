@@ -3,7 +3,7 @@
 
 import os
 import logging  # structured logging uses app.logger
-import importlib  # <-- ADDED: used for lazy import of session_store on demand
+import importlib  # <-- used for lazy import of session_store on demand
 from openai import OpenAI
 from flask import (
     request,
@@ -16,7 +16,7 @@ from flask import (
 )
 from dotenv import load_dotenv
 from pydantic import ValidationError  # handle DTO validation errors
-from werkzeug.exceptions import RequestEntityTooLarge  # <-- CHANGED earlier: use HTTPException for 413
+from werkzeug.exceptions import RequestEntityTooLarge  # use HTTPException for 413
 
 # ---------------------- Import strategy (works in BOTH launch modes) ----------------------
 # If launched with:  gunicorn --chdir server app:app
@@ -31,7 +31,7 @@ if __package__ in (None, ""):  # top-level launch: gunicorn --chdir server app:a
         register_latency_logging,
         register_error_handlers,
     )
-    from security import register_security_headers
+    from security import register_security_headers  # <-- FIXED: was `security_utils` (module doesn't exist)
     from ratelimit import init_rate_limiter
     from schemas import (
         ChatRequest,
@@ -39,9 +39,9 @@ if __package__ in (None, ""):  # top-level launch: gunicorn --chdir server app:a
         ErrorResponse,
         CreateSessionRequest,    # DTOs for sessions
         AppendMessageRequest,
-        UpdateSessionRequest,    # <-- ADDED: DTO for PATCH /api/sessions/:id
+        UpdateSessionRequest,    # DTO for PATCH /api/sessions/:id
     )
-    from routes.rag import rag_bp  # <-- NEW: import RAG blueprint for top-level launch
+    from routes.rag import rag_bp  # import RAG blueprint for top-level launch
 
     # --- Robust import of OpenAIService with fallback shim ---
     try:
@@ -54,7 +54,7 @@ if __package__ in (None, ""):  # top-level launch: gunicorn --chdir server app:a
     try:
         import services.session_store as session_store  # import the module (may fail in some modes)
     except Exception:  # noqa: BLE001
-        session_store = None  # <-- CHANGED: defer to lazy import guard if needed
+        session_store = None  # defer to lazy import guard if needed
 
     try:
         from models import Session as ChatSession      # keep existence checks fast
@@ -71,7 +71,7 @@ else:  # package launch: gunicorn server.app:app
         register_latency_logging,
         register_error_handlers,
     )
-    from .security import register_security_headers
+    from .security import register_security_headers  # <-- FIXED: was `.security_utils`
     from .ratelimit import init_rate_limiter
     from .schemas import (
         ChatRequest,
@@ -79,9 +79,9 @@ else:  # package launch: gunicorn server.app:app
         ErrorResponse,
         CreateSessionRequest,    # DTOs for sessions
         AppendMessageRequest,
-        UpdateSessionRequest,    # <-- ADDED: DTO for PATCH /api/sessions/:id
+        UpdateSessionRequest,    # DTO for PATCH /api/sessions/:id
     )
-    from .routes.rag import rag_bp  # <-- NEW: import RAG blueprint for package launch
+    from .routes.rag import rag_bp  # import RAG blueprint for package launch
     try:
         from .services import openai_client as _openai_client_mod
         OpenAIService = getattr(_openai_client_mod, "OpenAIService", None)
@@ -92,7 +92,7 @@ else:  # package launch: gunicorn server.app:app
     try:
         from .services import session_store as session_store  # import the module (may fail in some modes)
     except Exception:  # noqa: BLE001
-        session_store = None  # <-- CHANGED: defer to lazy import guard if needed
+        session_store = None  # defer to lazy import guard if needed
 
     try:
         from .models import Session as ChatSession
@@ -173,10 +173,10 @@ init_logging(app)
 register_request_id(app)
 register_latency_logging(app)
 register_error_handlers(app)
-register_security_headers(app)
+register_security_headers(app)  # ensures CSP/HSTS/etc. on all responses
 
-# ---------------------- NEW: Register RAG blueprint -----------------------
-app.register_blueprint(rag_bp, url_prefix="/api/rag")  # <-- NEW: expose /api/rag/* routes
+# ---------------------- Register RAG blueprint ----------------------------
+app.register_blueprint(rag_bp, url_prefix="/api/rag")
 # -------------------------------------------------------------------------
 
 def _error_payload(message: str, code: int):
@@ -187,8 +187,8 @@ def _error_payload(message: str, code: int):
         "request_id": getattr(g, "request_id", None),
     }
 
-# ------------------- NEW: make Pydantic errors JSON-safe -------------------
-def _validation_details(exc: ValidationError):  # <-- ADDED: sanitize pydantic v2 errors for JSON
+# ------------------- make Pydantic errors JSON-safe -----------------------
+def _validation_details(exc: ValidationError):
     """
     Pydantic v2 can include Exception instances in error 'ctx', which Flask's
     JSON encoder cannot serialize. Convert any BaseException values to strings.
@@ -216,15 +216,15 @@ def _ensure_sessions_service():
     Ensure session_store module is available. Try a lazy import in both
     package and top-level forms so we work regardless of start mode.
     """
-    global session_store  # <-- ADDED: we mutate the module-level variable
+    global session_store  # we mutate the module-level variable
     if session_store is None:
         try:
             # First try package path (preferred)
-            session_store = importlib.import_module("server.services.session_store")  # <-- ADDED: lazy import
+            session_store = importlib.import_module("server.services.session_store")
         except Exception as e1:
             try:
                 # Fallback to top-level path if app was launched with --chdir server
-                session_store = importlib.import_module("services.session_store")      # <-- ADDED: lazy import fallback
+                session_store = importlib.import_module("services.session_store")
             except Exception as e2:
                 current_app.logger.error(
                     "sessions.service.import_error",
@@ -239,44 +239,44 @@ def _ensure_sessions_service():
     return None
 # -------------------------------------------------------------------------
 
-# ------------------- NEW: Session memory config & helpers ------------------
+# ------------------- Session memory config & helpers ----------------------
 def _memory_enabled() -> bool:
-    """Feature flag for pinned memory (default: true)."""  # inline-change
-    return os.getenv("CHAT_MEMORY_ENABLED", "true").lower() not in ("0", "false", "no")  # inline-change
+    """Feature flag for pinned memory (default: true)."""
+    return os.getenv("CHAT_MEMORY_ENABLED", "true").lower() not in ("0", "false", "no")
 
 def _memory_model(default_chat_model: str) -> str:
-    """Model to use for memory summarization (default: gpt-3.5-turbo)."""  # inline-change
-    return os.getenv("CHAT_MEMORY_MODEL", "gpt-3.5-turbo") or default_chat_model  # inline-change
+    """Model to use for memory summarization (default: gpt-3.5-turbo)."""
+    return os.getenv("CHAT_MEMORY_MODEL", "gpt-3.5-turbo") or default_chat_model
 
 def _memory_max_chars() -> int:
-    """Hard cap on stored memory size to bound token cost (default: 2000 chars)."""  # inline-change
+    """Hard cap on stored memory size to bound token cost (default: 2000 chars)."""
     try:
-        return max(200, int(os.getenv("CHAT_MEMORY_MAX_CHARS", "2000")))  # floor at 200  # inline-change
+        return max(200, int(os.getenv("CHAT_MEMORY_MAX_CHARS", "2000")))  # floor at 200
     except Exception:
-        return 2000  # inline-change
+        return 2000
 
 def _summarize_and_merge_memory(session_id: str, old_memory: str | None, last_user: str, last_assistant: str, chat_model: str):
     """
-    Merge old memory with the latest turn using a lightweight LLM pass.  # inline-change
-    Failures are logged but never break the request.                        # inline-change
+    Merge old memory with the latest turn using a lightweight LLM pass.
+    Failures are logged but never break the request.
     """
-    if not _memory_enabled():  # feature flag  # inline-change
+    if not _memory_enabled():  # feature flag
         return
 
     err = _ensure_sessions_service()
     if err:
-        return  # cannot access store; skip silently  # inline-change
+        return  # cannot access store; skip silently
 
     try:
-        max_chars = _memory_max_chars()  # inline-change
-        # System prompt keeps summarization compact and de-duplicated  # inline-change
+        max_chars = _memory_max_chars()
+        # System prompt keeps summarization compact and de-duplicated
         sys_prompt = (
             "You are a compact session memory manager. Merge the old memory with the latest "
             "user/assistant turn into a concise, de-duplicated bullet list of persistent facts, "
             "preferences, goals, and decisions. Omit chit-chat, speculation, and ephemeral details. "
             f"Keep the result under {max_chars} characters. Return plain text."
         )
-        # Build summarizer messages  # inline-change
+        # Build summarizer messages
         user_block = (
             f"Old memory:\n{old_memory or '(none)'}\n\n"
             f"Latest turn:\nUser: {last_user}\nAssistant: {last_assistant}\n\n"
@@ -286,17 +286,17 @@ def _summarize_and_merge_memory(session_id: str, old_memory: str | None, last_us
             {"role": "system", "content": sys_prompt},
             {"role": "user", "content": user_block},
         ]
-        mem_model = _memory_model(chat_model)  # inline-change
-        new_mem = (openai_service.complete(model=mem_model, messages=messages) or "").strip()  # inline-change
+        mem_model = _memory_model(chat_model)
+        new_mem = (openai_service.complete(model=mem_model, messages=messages) or "").strip()
         if not new_mem:
-            new_mem = old_memory or ""  # don't erase on empty  # inline-change
+            new_mem = old_memory or ""  # don't erase on empty
 
-        # Hard cap, but be graceful if summarizer exceeded budget  # inline-change
+        # Hard cap, but be graceful if summarizer exceeded budget
         if len(new_mem) > max_chars:
             new_mem = new_mem[:max_chars]
 
-        session_store.update_memory(session_id, new_mem)  # persist  # inline-change
-        current_app.logger.info(  # observability breadcrumb  # inline-change
+        session_store.update_memory(session_id, new_mem)  # persist
+        current_app.logger.info(  # observability breadcrumb
             "session.memory.updated",
             extra={
                 "event": "session.memory.updated",
@@ -306,7 +306,7 @@ def _summarize_and_merge_memory(session_id: str, old_memory: str | None, last_us
             },
         )
     except Exception:
-        current_app.logger.warning(  # never fail the request on memory issues  # inline-change
+        current_app.logger.warning(  # never fail the request on memory issues
             "session.memory.update_failed",
             exc_info=True,
             extra={"event": "session.memory.update_failed", "session_id": session_id},
@@ -320,27 +320,27 @@ def _build_openai_messages_with_context(user_text: str, model: str, session_id: 
     current user message. Limits the window to the last N turns to control cost.
     """
     SYSTEM_PROMPT = "You are a helpful assistant."
-    MAX_TURNS = int(os.getenv("CHAT_CONTEXT_MAX_TURNS", "12"))  # <-- env-tunable context window
+    MAX_TURNS = int(os.getenv("CHAT_CONTEXT_MAX_TURNS", "12"))  # env-tunable context window
 
     msgs = [{"role": "system", "content": SYSTEM_PROMPT}]
 
-    # ---- NEW: prepend pinned session memory when enabled & present ----
-    if _memory_enabled() and session_id and db is not None and ChatSession is not None:  # inline-change
+    # ---- prepend pinned session memory when enabled & present ----
+    if _memory_enabled() and session_id and db is not None and ChatSession is not None:
         if _ensure_sessions_service() is None:
             try:
-                pinned = session_store.get_memory(session_id)  # inline-change
+                pinned = session_store.get_memory(session_id)
                 if pinned:
-                    msgs.append({  # second system message carries compact memory  # inline-change
+                    msgs.append({  # second system message carries compact memory
                         "role": "system",
                         "content": f"Session memory (pinned):\n{pinned}",
                     })
             except Exception:
-                current_app.logger.warning(  # non-fatal  # inline-change
+                current_app.logger.warning(  # non-fatal
                     "sessions.memory.load_failed",
                     exc_info=True,
                     extra={"event": "sessions.memory.load_failed", "session_id": session_id},
                 )
-                # continue without memory  # inline-change
+                # continue without memory
 
     if session_id and db is not None and ChatSession is not None:
         if _ensure_sessions_service() is None:
@@ -395,7 +395,7 @@ def chat():
         req = ChatRequest(message=incoming_message, model=model, session_id=data.get("session_id"))
     except ValidationError as ve:
         payload = _error_payload("Validation error", 400)
-        payload["details"] = _validation_details(ve)  # <-- CHANGED: JSON-safe details
+        payload["details"] = _validation_details(ve)  # JSON-safe details
         return jsonify(payload), 400
 
     # Build messages from DB context (if any) + current user (+ memory if enabled)
@@ -418,8 +418,8 @@ def chat():
                 # append after building context (order avoids double-counting)
                 session_store.append_message(req.session_id, "user", req.message)
                 session_store.append_message(req.session_id, "assistant", reply_text)
-                # ---- NEW: update pinned memory after successful turn ----
-                _summarize_and_merge_memory(  # fire-and-forget; errors logged  # inline-change
+                # ---- update pinned memory after successful turn ----
+                _summarize_and_merge_memory(  # fire-and-forget; errors logged
                     session_id=req.session_id,
                     old_memory=session_store.get_memory(req.session_id),
                     last_user=req.message,
@@ -428,7 +428,7 @@ def chat():
                 )
             except Exception:
                 # Persistence or memory update issues must not break the response
-                current_app.logger.warning(  # inline-change
+                current_app.logger.warning(
                     "session.persist_or_memory.failed",
                     exc_info=True,
                     extra={"event": "session.persist_or_memory.failed", "session_id": req.session_id},
@@ -479,7 +479,7 @@ def chat_stream():
         req = ChatRequest(message=incoming_message, model=model, session_id=data.get("session_id"))
     except ValidationError as ve:
         payload = _error_payload("Validation error", 400)
-        payload["details"] = _validation_details(ve)  # <-- CHANGED: JSON-safe details
+        payload["details"] = _validation_details(ve)  # JSON-safe details
         return jsonify(payload), 400
 
     current_app.logger.info(
@@ -518,8 +518,8 @@ def chat_stream():
                     session_store.append_message(req.session_id, "user", req.message)
                     assistant_text = "".join(assembled)
                     session_store.append_message(req.session_id, "assistant", assistant_text)
-                    # ---- NEW: update pinned memory after successful stream ----
-                    _summarize_and_merge_memory(  # fire-and-forget; errors logged  # inline-change
+                    # ---- update pinned memory after successful stream ----
+                    _summarize_and_merge_memory(  # fire-and-forget; errors logged
                         session_id=req.session_id,
                         old_memory=session_store.get_memory(req.session_id),
                         last_user=req.message,
@@ -527,7 +527,7 @@ def chat_stream():
                         chat_model=req.model,
                     )
                 except Exception:
-                    current_app.logger.warning(  # inline-change
+                    current_app.logger.warning(
                         "session.persist_or_memory.failed",
                         exc_info=True,
                         extra={"event": "session.persist_or_memory.failed", "session_id": req.session_id},
@@ -580,7 +580,7 @@ def create_session_route():
         req = CreateSessionRequest(**data)
     except ValidationError as ve:
         payload = _error_payload("Validation error", 400)
-        payload["details"] = _validation_details(ve)  # <-- CHANGED: JSON-safe details
+        payload["details"] = _validation_details(ve)  # JSON-safe details
         return jsonify(payload), 400
 
     try:
@@ -675,7 +675,7 @@ def append_message_route(session_id: str):
         req = AppendMessageRequest(**data)
     except ValidationError as ve:
         payload = _error_payload("Validation error", 400)
-        payload["details"] = _validation_details(ve)  # <-- CHANGED: JSON-safe details
+        payload["details"] = _validation_details(ve)  # JSON-safe details
         return jsonify(payload), 400
 
     try:
@@ -710,7 +710,7 @@ def rename_session_route(session_id: str):  # PATCH endpoint for renaming sessio
         req = UpdateSessionRequest(**data)           # validate & normalize title
     except ValidationError as ve:
         payload = _error_payload("Validation error", 400)
-        payload["details"] = _validation_details(ve)  # <-- CHANGED: JSON-safe details
+        payload["details"] = _validation_details(ve)  # JSON-safe details
         return jsonify(payload), 400
 
     try:
@@ -793,7 +793,9 @@ def export_session_route(session_id: str):
 # Any non-API 404 returns the built index.html so client-side routes work.
 @app.errorhandler(404)
 def not_found(_e):
-    # Global error handlers intentionally skip non-/api paths
+    # Ensure API 404s stay JSON and include request_id            <-- ADDED: guard for /api/*
+    if request.path.startswith("/api/"):
+        return jsonify(_error_payload("Not Found", 404)), 404
     return render_template("index.html")
 # -------------------------------------------------------------------------
 
