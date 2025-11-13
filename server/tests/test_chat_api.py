@@ -178,6 +178,7 @@ def test_chat_stream_sse_headers_and_tokens(monkeypatch):
     app = app_mod.app
     with app.test_client() as c:
         res = c.post("/api/chat/stream", json={"message": "stream me", "model": "gpt-4"})
+        assert res.status_code == 200  # <-- CHANGED: SSE happy path returns 200
         # Content-Type should be text/event-stream
         ctype = res.headers.get("Content-Type", "")
         assert "text/event-stream" in ctype
@@ -188,6 +189,8 @@ def test_chat_stream_sse_headers_and_tokens(monkeypatch):
         assert "Hi" in payload or '"token"' in payload
         # Should include a done marker
         assert '"done": true' in payload
+        # Should include kickoff frame with request_id per design  # inline-change
+        assert '"request_id"' in payload  # <-- CHANGED: verify kickoff correlation frame
 
 
 def test_chat_stream_payload_too_large(monkeypatch):
@@ -204,6 +207,21 @@ def test_chat_stream_payload_too_large(monkeypatch):
         assert body.get("error")
         assert body.get("code") == 413          # <-- CHANGED
         assert body.get("request_id") is not None
+
+
+def test_stream_missing_message_returns_400(monkeypatch):
+    # NEW: Validation errors for SSE should short-circuit with JSON 400 (not a stream)  # inline-change
+    app_mod = import_module("server.app")
+    app_mod.openai_service._client = _mock_openai()  # ensure service is available
+    app = app_mod.app
+    with app.test_client() as c:
+        res = c.post("/api/chat/stream", json={"model": "gpt-4"})  # missing 'message'
+        assert res.status_code == 400  # <-- CHANGED: validation error path
+        assert res.is_json
+        body = res.get_json()
+        assert body.get("error")
+        assert body.get("code") == 400  # <-- CHANGED
+        assert body.get("request_id") is not None  # <-- CHANGED
 
 
 def test_circuit_open_non_stream(monkeypatch):
@@ -238,7 +256,8 @@ def test_circuit_open_stream(monkeypatch):
         res = c.post("/api/chat/stream", json={"message": "hi", "model": "gpt-4"})
         assert "text/event-stream" in res.headers.get("Content-Type", "")
         data = res.data.decode("utf-8")
-        assert "Service temporarily unavailable" in data
+        # Tolerate different phrasing; require unified SSE error fields  # inline-change
+        assert ("Service temporarily unavailable" in data) or ('"error"' in data)  # <-- CHANGED: less brittle
         assert '"done": true' in data
         assert '"code": 503' in data                 # <-- CHANGED: unified SSE error fields
         assert '"request_id":' in data               # <-- CHANGED
