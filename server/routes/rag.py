@@ -54,49 +54,111 @@ def ingest():
     """
     Body: { "docs": [ { "id": "HR-1", "department": "HR", "text": "..." }, ... ], "overwrite": false }
     """
-    body = request.get_json(force=True) or {}
-    docs: List[Dict] = body.get("docs", [])
-    overwrite = bool(body.get("overwrite", False))
+    from flask import current_app  # LOCAL import so module stays importable even without app context  # NEW
 
-    # Chunk + redact + embed
-    chunks, metas = [], []
-    for d in docs:
-        did = d.get("id") or str(uuid.uuid4())
-        dept = d.get("department") or "general"
-        for i, ck in enumerate(chunk_text(d.get("text",""))):
-            clean = redact(ck)                                         # now imports from security_utils
-            chunks.append(clean)
-            metas.append({
-                "doc_id": did,
-                "chunk_id": f"{did}::chunk{i}",
-                "department": dept,
-                "text": clean
-            })
+    try:  # NEW: wrap whole ingest to avoid "Empty reply from server"
+        body = request.get_json(force=True) or {}                     # NEW: moved inside try
+        docs: List[Dict] = body.get("docs", [])
+        overwrite = bool(body.get("overwrite", False))
 
-    if not chunks:
-        return jsonify({"ok": True, "ingested": 0, "emb_model": model_name()})
+        # Chunk + redact + embed
+        chunks, metas = [], []
+        for d in docs:
+            did = d.get("id") or str(uuid.uuid4())
+            dept = d.get("department") or "general"
+            for i, ck in enumerate(chunk_text(d.get("text", ""))):
+                clean = redact(ck)                                     # now imports from security_utils
+                chunks.append(clean)
+                metas.append({
+                    "doc_id": did,
+                    "chunk_id": f"{did}::chunk{i}",
+                    "department": dept,
+                    "text": clean
+                })
 
-    X = embed_texts(chunks)
-    _ensure_store(X.shape[1])
-    if overwrite:
-        _STORE.load_or_init(X.shape[1])  # re-init store
-    _STORE.add(X, metas)
-    _STORE.save()
-    return jsonify({"ok": True, "ingested": len(chunks), "emb_model": model_name()})
+        if not chunks:
+            return jsonify({"ok": True, "ingested": 0, "emb_model": model_name()})
+
+        X = embed_texts(chunks)                                       # may raise if OPENAI_API_KEY missing
+        _ensure_store(X.shape[1])
+        if overwrite:
+            _STORE.load_or_init(X.shape[1])  # re-init store
+        _STORE.add(X, metas)
+        _STORE.save()
+        return jsonify({"ok": True, "ingested": len(chunks), "emb_model": model_name()})
+    except Exception as e:
+        # Log rich error details, but don't crash the whole dev server      # NEW: logging instead of silent crash
+        try:
+            current_app.logger.error(
+                "rag.ingest.error",
+                exc_info=True,
+                extra={"event": "rag.ingest.error"},
+            )
+        except Exception:
+            # If logging itself fails, just continue to the JSON error      # NEW: defensive logging
+            pass
+
+        return jsonify(
+            {
+                "ok": False,
+                "error": str(e),
+                "emb_model": model_name(),
+            }
+        ), 500  # NEW: return JSON 500 instead of "Empty reply from server"
 
 @rag_bp.route("/query", methods=["POST"])
 def query():
     """
-    Body: { "query": "string", "k": 4, "department": "Security", "mmr_lambda": 0.6 }
+    Body (flexible keys):
+      {
+        "question": "string",          # preferred key
+        "query": "string",             # legacy/alternate key (also accepted)
+        "top_k": 4,                    # optional, alias for "k"
+        "k": 4,                        # optional, fallback when top_k omitted
+        "department": "Security",      # optional filter
+        "mmr_lambda": 0.6              # optional diversity knob
+      }
     """
     body = request.get_json(force=True) or {}
-    q = body.get("query", "")
-    k = int(body.get("k", 4))
+
+    # Accept both "question" and "query" to be client-friendly          # <-- NEW: accept question or query
+    raw_q = body.get("question")
+    if raw_q is None:
+        raw_q = body.get("query")
+
+    q = (raw_q or "").strip()                                          # <-- NEW: normalize/strip
+
+    if not q:
+        # Return a clean 400 instead of exploding in embed_texts        # <-- NEW: guard empty question
+        return jsonify({
+            "ok": False,
+            "error": "Missing 'question' (or 'query') field",
+        }), 400
+
+    # Support both "top_k" and "k"                                      # <-- NEW: flexible k parsing
+    raw_k = body.get("top_k", body.get("k", 4))
+    try:
+        k = int(raw_k)
+    except (TypeError, ValueError):
+        k = 4
+
     dept = body.get("department")
+    if isinstance(dept, str):
+        dept = dept.strip() or None                                     # <-- NEW: normalize dept to None when blank
+
     lam = body.get("mmr_lambda", 0.6)
+    try:
+        lam = float(lam)
+    except (TypeError, ValueError):
+        lam = 0.6
+
     _ensure_store()
     hits = retrieve(q, _STORE, k=k, dept_filter=dept, mmr_lambda=lam)
-    return jsonify({"ok": True, "hits": hits})
+    return jsonify({
+        "ok": True,
+        "query": q,                                                    # <-- NEW: echo normalized query for debugging
+        "hits": hits,
+    })
 
 @rag_bp.route("/eval", methods=["POST"])
 def eval_rag():

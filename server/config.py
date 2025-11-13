@@ -1,5 +1,5 @@
 # server/config.py
-# Serve the built React app from ../client/dist 
+# Serve the built React app from ../client/dist
 
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
@@ -13,6 +13,13 @@ import os
 
 load_dotenv()  # load .env for local dev
 
+# --- Base paths -----------------------------------------------------------
+BASE_DIR = os.path.abspath(os.path.dirname(__file__))  # NEW: absolute path to server/
+# This will be .../ask-flask/server/instance/app.db regardless of cwd
+default_db_path = os.path.join(BASE_DIR, "instance", "app.db")  # NEW
+os.makedirs(os.path.dirname(default_db_path), exist_ok=True)     # NEW: ensure dir exists
+# -------------------------------------------------------------------------
+
 # Naming conventions for Alembic
 naming_convention = {
     "ix": "ix_%(column_0_label)s",
@@ -25,17 +32,17 @@ metadata = MetaData(naming_convention=naming_convention)
 
 app = Flask(
     __name__,
-    static_url_path='',                                      # serve assets at root
-    static_folder=os.path.join('..', 'client', 'dist'),
-    template_folder=os.path.join('..', 'client', 'dist'),
+    static_url_path="",  # serve assets at root
+    static_folder=os.path.join("..", "client", "dist"),
+    template_folder=os.path.join("..", "client", "dist"),
 )
 
-app.secret_key = os.getenv("FLASK_SECRET_KEY")
+app.secret_key = os.getenv("FLASK_SECRET_KEY", "dev")  # NEW: safe dev default
 
-# Fallback DB so the app always boots locally
+# DB URI: prefer env (for Postgres in production), otherwise use absolute SQLite path
 app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv(
     "DATABASE_URI",
-    "sqlite:///instance/app.db"                              # use instance/app.db if unset
+    f"sqlite:///{default_db_path}",  # NEW: absolute sqlite path under server/instance
 )
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
@@ -47,7 +54,7 @@ api = Api(app=app)
 # CORS:
 # In production (single service), FE and BE share the same origin → CORS not required,
 # but keeping localhost origins helps during dev if you run Vite separately.
-frontend_origin = os.getenv("FRONTEND_ORIGIN")               # e.g., http://localhost:5173
+frontend_origin = os.getenv("FRONTEND_ORIGIN")  # e.g., http://localhost:5173
 origins = [
     "http://localhost:4000",
     "http://localhost:5173",

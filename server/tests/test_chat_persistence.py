@@ -55,7 +55,14 @@ def test_persists_user_and_assistant_non_stream(monkeypatch):
         session_id = _create_session(c)
 
         # Call chat with session_id → should append user + assistant after success
-        r = c.post("/api/chat", json={"message": "Hello non-stream", "model": "gpt-4", "session_id": session_id})
+        r = c.post(
+            "/api/chat",
+            json={
+                "message": "Hello non-stream",
+                "model": "gpt-4",
+                "session_id": session_id,
+            },
+        )
         assert r.status_code == 200
         body = r.get_json()
         assert body.get("reply") == "MOCK-REPLY"
@@ -89,7 +96,14 @@ def test_persists_user_and_assistant_stream(monkeypatch):
     with app.test_client() as c:
         session_id = _create_session(c)
 
-        r = c.post("/api/chat/stream", json={"message": "Hello stream", "model": "gpt-4", "session_id": session_id})
+        r = c.post(
+            "/api/chat/stream",
+            json={
+                "message": "Hello stream",
+                "model": "gpt-4",
+                "session_id": session_id,
+            },
+        )
         # SSE happy path returns 200; body contains event-stream frames (not parsed here).
         assert r.status_code == 200
         payload = r.data.decode("utf-8")
@@ -106,6 +120,10 @@ def test_persists_user_and_assistant_stream(monkeypatch):
 def test_context_window_respects_turn_count(monkeypatch):
     app_mod = import_module("server.app")
     app = app_mod.app
+
+    # Disable pinned memory so we only inspect the chat context window,
+    # not the summarizer prompts that also call openai_service.complete.
+    monkeypatch.setenv("CHAT_MEMORY_ENABLED", "false")
 
     # We'll build 4 prior user/assistant exchanges, then set CHAT_CONTEXT_MAX_TURNS=2.
     # The final call should include only the last 2 prior exchanges in the prompt.
@@ -125,7 +143,11 @@ def test_context_window_respects_turn_count(monkeypatch):
         for i in range(4):
             r = c.post(
                 "/api/chat",
-                json={"message": f"seed-{i}", "model": "gpt-3.5-turbo", "session_id": session_id},
+                json={
+                    "message": f"seed-{i}",
+                    "model": "gpt-3.5-turbo",
+                    "session_id": session_id,
+                },
             )
             assert r.status_code == 200
 
@@ -148,7 +170,7 @@ def test_context_window_respects_turn_count(monkeypatch):
         roles = [m["role"] for m in msgs]
         # System or developer first
         assert roles[0] in ("system", "developer")
-        # Last should be the current user
+        # Last should be the current user "final"
         assert roles[-1] == "user" and msgs[-1]["content"] == "final"
 
         # Extract just the alternating prior pairs (skip first system and last current user)
@@ -168,6 +190,10 @@ def test_context_window_zero_includes_no_prior(monkeypatch):
     # Build 2 prior exchanges, then set the knob to 0; only system + current user should be sent.
     captured = {"messages": None}
 
+    # Disable pinned memory here as well so we don't capture summarizer prompts,
+    # only the actual chat request messages.
+    monkeypatch.setenv("CHAT_MEMORY_ENABLED", "false")
+
     def deterministic_reply(model, messages):
         captured["messages"] = messages
         return "CTX-EMPTY"
@@ -180,7 +206,11 @@ def test_context_window_zero_includes_no_prior(monkeypatch):
         for i in range(2):
             r = c.post(
                 "/api/chat",
-                json={"message": f"seed-{i}", "model": "gpt-3.5-turbo", "session_id": session_id},
+                json={
+                    "message": f"seed-{i}",
+                    "model": "gpt-3.5-turbo",
+                    "session_id": session_id,
+                },
             )
             assert r.status_code == 200
 

@@ -3,7 +3,7 @@
 
 import os
 import logging  # structured logging uses app.logger
-import importlib  # <-- used for lazy import of session_store on demand
+import importlib  # used for lazy import of session_store on demand
 from openai import OpenAI
 from flask import (
     request,
@@ -31,7 +31,7 @@ if __package__ in (None, ""):  # top-level launch: gunicorn --chdir server app:a
         register_latency_logging,
         register_error_handlers,
     )
-    from security import register_security_headers  # <-- FIXED: was `security_utils` (module doesn't exist)
+    from security import register_security_headers  # FIXED: use security.py directly
     from ratelimit import init_rate_limiter
     from schemas import (
         ChatRequest,
@@ -71,7 +71,7 @@ else:  # package launch: gunicorn server.app:app
         register_latency_logging,
         register_error_handlers,
     )
-    from .security import register_security_headers  # <-- FIXED: was `.security_utils`
+    from .security import register_security_headers  # FIXED: was `.security_utils`
     from .ratelimit import init_rate_limiter
     from .schemas import (
         ChatRequest,
@@ -244,9 +244,11 @@ def _memory_enabled() -> bool:
     """Feature flag for pinned memory (default: true)."""
     return os.getenv("CHAT_MEMORY_ENABLED", "true").lower() not in ("0", "false", "no")
 
+
 def _memory_model(default_chat_model: str) -> str:
     """Model to use for memory summarization (default: gpt-3.5-turbo)."""
     return os.getenv("CHAT_MEMORY_MODEL", "gpt-3.5-turbo") or default_chat_model
+
 
 def _memory_max_chars() -> int:
     """Hard cap on stored memory size to bound token cost (default: 2000 chars)."""
@@ -255,7 +257,14 @@ def _memory_max_chars() -> int:
     except Exception:
         return 2000
 
-def _summarize_and_merge_memory(session_id: str, old_memory: str | None, last_user: str, last_assistant: str, chat_model: str):
+
+def _summarize_and_merge_memory(
+    session_id: str,
+    old_memory: str | None,
+    last_user: str,
+    last_assistant: str,
+    chat_model: str,
+):
     """
     Merge old memory with the latest turn using a lightweight LLM pass.
     Failures are logged but never break the request.
@@ -345,11 +354,17 @@ def _build_openai_messages_with_context(user_text: str, model: str, session_id: 
     if session_id and db is not None and ChatSession is not None:
         if _ensure_sessions_service() is None:
             try:
-                # Get prior messages ascending by created_at; slice to recent window
+                # Get prior messages ascending by created_at
                 prior = session_store.get_session_messages(session_id) or []
-                # Keep only the most recent 2*MAX_TURNS items (~MAX_TURNS exchanges)
-                if len(prior) > MAX_TURNS * 2:
-                    prior = prior[-(MAX_TURNS * 2):]
+
+                # Keep only the most recent 2*MAX_TURNS items (~MAX_TURNS exchanges).
+                # IMPORTANT: handle MAX_TURNS = 0 explicitly so we don't use any prior turns.
+                keep = MAX_TURNS * 2
+                if keep <= 0:
+                    prior = []  # knob turned off → no prior context
+                elif len(prior) > keep:
+                    prior = prior[-keep:]
+
                 for m in prior:
                     role = "assistant" if m.get("role") == "assistant" else "user"
                     content = m.get("content") or ""
@@ -367,6 +382,7 @@ def _build_openai_messages_with_context(user_text: str, model: str, session_id: 
     # Always append the current user message last
     msgs.append({"role": "user", "content": user_text})
     return msgs
+
 
 @app.route("/health", methods=["GET"])
 def health():
@@ -793,7 +809,7 @@ def export_session_route(session_id: str):
 # Any non-API 404 returns the built index.html so client-side routes work.
 @app.errorhandler(404)
 def not_found(_e):
-    # Ensure API 404s stay JSON and include request_id            <-- ADDED: guard for /api/*
+    # Ensure API 404s stay JSON and include request_id
     if request.path.startswith("/api/"):
         return jsonify(_error_payload("Not Found", 404)), 404
     return render_template("index.html")
