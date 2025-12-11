@@ -1,0 +1,205 @@
+/* client/src/components/SessionSidebar.css */
+/* --- Left-hand session list panel: glassy, compact, production-grade. --- */
+
+.session-sidebar {
+  --sidebar-surface: rgba(15, 23, 42, 0.96);
+  --sidebar-surface-soft: rgba(15, 23, 42, 0.9);
+  --sidebar-border: rgba(148, 163, 184, 0.35);
+  --sidebar-accent: #38bdf8;
+  --sidebar-accent-soft: rgba(56, 189, 248, 0.18);
+
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100%; /* fill the grid column from App.jsx */
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid var(--sidebar-border);
+  background:
+    radial-gradient(circle at 0 0, rgba(59, 130, 246, 0.14), transparent 55%),
+    radial-gradient(circle at 100% 0, rgba(56, 189, 248, 0.10), transparent 55%),
+    linear-gradient(180deg, var(--sidebar-surface), var(--sidebar-surface-soft));
+  box-shadow:
+    0 10px 25px rgba(15, 23, 42, 0.7),
+    inset 0 1px 0 rgba(255, 255, 255, 0.02);
+  backdrop-filter: blur(14px);
+}
+
+/* Header: title + add button */
+.session-sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.session-sidebar-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #e2e8f0;
+}
+
+/* Shared small icon-style buttons (add/rename/delete) */
+.session-sidebar-icon-btn {
+  min-width: 0;
+  padding: 0.25rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  background: rgba(15, 23, 42, 0.92);
+  color: #e2e8f0;
+  font-size: 0.85rem;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    transform 60ms ease,
+    box-shadow 120ms ease;
+}
+
+.session-sidebar-icon-btn:hover:not(:disabled) {
+  background: rgba(30, 64, 175, 0.92);
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.45);
+}
+
+.session-sidebar-icon-btn:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: none;
+}
+
+.session-sidebar-icon-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.session-sidebar-add-btn {
+  font-size: 1rem;
+}
+
+/* Scrollable list of sessions */
+.session-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 380px;
+  overflow-y: auto;
+  padding-right: 2px; /* avoid content under scrollbar on WebKit */
+}
+
+/* Scrollbar styling */
+.session-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.session-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.session-list::-webkit-scrollbar-thumb {
+  background: rgba(30, 64, 175, 0.7);
+  border-radius: 999px;
+}
+
+/* Individual session rows */
+.session-list-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 7px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    box-shadow 120ms ease,
+    transform 60ms ease;
+}
+
+.session-list-item:hover {
+  background: rgba(15, 23, 42, 0.96);
+}
+
+.session-list-item--active {
+  background: var(--sidebar-accent-soft);
+  box-shadow: 0 0 0 1px rgba(125, 211, 252, 0.65);
+}
+
+/* Clickable main area: session title + truncated id */
+.session-list-item-main {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.session-list-item-title {
+  font-size: 0.84rem;
+  font-weight: 500;
+  color: #e5e7eb;
+}
+
+.session-list-item-meta {
+  font-size: 0.7rem;
+  color: #9ca3af;
+}
+
+/* Action buttons (rename/delete) */
+.session-list-item-actions {
+  display: flex;
+  gap: 4px;
+}
+
+/* Divider between list and export actions */
+.session-sidebar-divider {
+  border: none;
+  border-top: 1px solid rgba(148, 163, 184, 0.3);
+  margin: 8px 0 6px;
+}
+
+/* Export section */
+.session-export-actions {
+  display: grid;
+  gap: 6px;
+}
+
+.session-export-btn {
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  padding: 0.45rem 0.6rem;
+  background: rgba(15, 23, 42, 0.92);
+  color: #e5e7eb;
+  font-size: 0.82rem;
+  cursor: pointer;
+  text-align: center;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    transform 60ms ease,
+    opacity 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.session-export-btn:hover:not(:disabled) {
+  background: rgba(30, 64, 175, 0.96);
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.45);
+}
+
+.session-export-btn:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: none;
+}
+
+.session-export-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}

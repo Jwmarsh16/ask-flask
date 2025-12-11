@@ -1,5 +1,6 @@
 // client/src/components/SessionSidebar.jsx
-import { useEffect, useRef, useState } from 'react' // <-- CHANGED: add useRef for one-time init guard
+import { useEffect, useRef, useState } from 'react' // <-- existing: hooks
+import './SessionSidebar.css' // <-- ADDED: extract inline styles into dedicated CSS
 
 /**
  * Session sidebar wired to the backend Sessions API.
@@ -44,7 +45,7 @@ export default function SessionSidebar({ sessionId, onSelectSession }) {
     setSessions(list)
     const saved = localStorage.getItem(LS_SESSION_ID)
     // Decide which session to select // <-- ADDED: robust selection logic
-    const found = list.find(s => s.id === saved)
+    const found = list.find((s) => s.id === saved)
     if (found) {
       if (!sessionId) onSelectSession?.(found.id) // keep parent in sync if not already selected
       return
@@ -63,7 +64,7 @@ export default function SessionSidebar({ sessionId, onSelectSession }) {
     localStorage.setItem(LS_SESSION_ID, created.id)
     onSelectSession?.(created.id)
     // Reflect on the list locally
-    setSessions(prev => [created, ...prev])
+    setSessions((prev) => [created, ...prev])
   }
 
   // Initialize from backend once on mount // <-- CHANGED: switch from LocalStorage list to API
@@ -84,7 +85,7 @@ export default function SessionSidebar({ sessionId, onSelectSession }) {
         method: 'POST',
         body: JSON.stringify({ title: 'New session' }), // <-- CHANGED: create on server
       })
-      setSessions(prev => [created, ...prev])
+      setSessions((prev) => [created, ...prev])
       localStorage.setItem(LS_SESSION_ID, created.id) // <-- CHANGED: keep LS in sync with active id
       onSelectSession?.(created.id)
     } catch (e) {
@@ -95,7 +96,7 @@ export default function SessionSidebar({ sessionId, onSelectSession }) {
   const handleDelete = async (id) => {
     try {
       await api(`/sessions/${id}`, { method: 'DELETE' }) // <-- CHANGED: delete on server
-      const next = sessions.filter(s => s.id !== id)
+      const next = sessions.filter((s) => s.id !== id)
       setSessions(next)
       // If the active session was deleted, pick a replacement or create a fresh one
       if (id === sessionId) {
@@ -114,18 +115,24 @@ export default function SessionSidebar({ sessionId, onSelectSession }) {
 
   const handleRename = async (id) => {
     // Server-backed rename (PATCH) with optimistic UI + revert on failure     // <-- CHANGED: implement PATCH
-    const current = sessions.find(s => s.id === id)
-    const proposed = prompt('Session title:', (current?.title ?? 'Untitled')) // default to current title
+    const current = sessions.find((s) => s.id === id)
+    const proposed = prompt('Session title:', current?.title ?? 'Untitled') // default to current title
     if (proposed === null) return // user cancelled
 
     const title = proposed.trim() // trim before validation                     // <-- ADDED: trim
-    if (title.length === 0) { alert('Title cannot be empty.'); return }        // <-- ADDED: client guard
-    if (title.length > 200) { alert('Title must be 200 characters or fewer.'); return } // <-- ADDED: length guard
+    if (title.length === 0) {
+      alert('Title cannot be empty.')
+      return
+    } // <-- ADDED: client guard
+    if (title.length > 200) {
+      alert('Title must be 200 characters or fewer.')
+      return
+    } // <-- ADDED: length guard
     if (title === (current?.title ?? '')) return // no-op if unchanged          // <-- ADDED: skip unchanged
 
     const snapshot = sessions // keep for revert                                // <-- ADDED: snapshot for revert
     // Optimistic update                                                        // <-- ADDED: optimistic UI
-    setSessions(prev => prev.map(s => (s.id === id ? { ...s, title } : s)))
+    setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, title } : s)))
 
     try {
       const updated = await api(`/sessions/${id}`, {
@@ -133,7 +140,9 @@ export default function SessionSidebar({ sessionId, onSelectSession }) {
         body: JSON.stringify({ title }), // server also trims/validates
       })
       // Use server canonical response (in case of any normalization)          // <-- ADDED: sync with server
-      setSessions(prev => prev.map(s => (s.id === id ? { ...s, title: updated.title } : s)))
+      setSessions((prev) =>
+        prev.map((s) => (s.id === id ? { ...s, title: updated.title } : s)),
+      )
     } catch (e) {
       setSessions(snapshot) // revert                                          // <-- ADDED: revert on error
       alert(`Failed to rename session: ${e.message}`) // surface error          // <-- ADDED
@@ -157,7 +166,7 @@ export default function SessionSidebar({ sessionId, onSelectSession }) {
       const a = document.createElement('a')
       a.href = url
       a.download = filename
-      a.type = 'button' // <-- ADDED: explicit type
+      a.type = 'button' // <-- ADDED: explicit type (harmless on anchor)
       document.body.appendChild(a)
       a.click()
       a.remove()
@@ -170,42 +179,93 @@ export default function SessionSidebar({ sessionId, onSelectSession }) {
   const disabled = !sessionId
 
   return (
-    <div style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, padding: 12 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-        <strong>Sessions</strong>
-        <button type="button" onClick={handleCreate} title="Create a new session">＋</button> {/* <-- CHANGED: now creates on server; ADDED: explicit button type */}
+    <div className="session-sidebar">
+      {/* <-- CHANGED: use CSS class instead of inline styles for outer shell */}
+      <div className="session-sidebar-header">
+        {/* <-- ADDED: semantic header container for title + add button */}
+        <span className="session-sidebar-title">Sessions</span>
+        <button
+          type="button"
+          onClick={handleCreate}
+          title="Create a new session"
+          aria-label="Create a new session"
+          className="session-sidebar-icon-btn session-sidebar-add-btn" // <-- ADDED: shared icon styles
+        >
+          ＋
+        </button>
       </div>
-      <ul style={{ listStyle: 'none', padding: 0, margin: 0, maxHeight: 360, overflowY: 'auto' }}>
-        {sessions.map(s => (
-          <li key={s.id} style={{ // <-- CHANGED: keys guaranteed by server ids
-            display: 'grid',
-            gridTemplateColumns: '1fr auto',
-            alignItems: 'center',
-            gap: 6,
-            padding: 6,
-            borderRadius: 6,
-            background: s.id === sessionId ? 'rgba(255,255,255,0.06)' : 'transparent',
-            cursor: 'pointer'
-          }}>
-            <div onClick={() => onSelectSession?.(s.id)}> {/* <-- CHANGED: id is always defined */}
-              <div style={{ fontSize: 13, fontWeight: 600 }}>{s.title || 'Untitled'}</div>
-              <div style={{ fontSize: 11, opacity: 0.7 }}>
-                {s.id.slice(0, 8)}… {/* <-- CHANGED: server guarantees id */}
+
+      <ul className="session-list">
+        {/* <-- CHANGED: move list layout/scrolling to CSS */}
+        {sessions.map((s) => {
+          const isActive = s.id === sessionId // <-- ADDED: derive active state for styling
+          return (
+            <li
+              key={s.id} // <-- CHANGED: keys guaranteed by server ids
+              className={`session-list-item${
+                isActive ? ' session-list-item--active' : ''
+              }`} // <-- ADDED: BEM-style active modifier
+            >
+              <div
+                className="session-list-item-main"
+                onClick={() => onSelectSession?.(s.id)}
+              >
+                {/* <-- ADDED: class hooks for title/meta styling */}
+                <div className="session-list-item-title">
+                  {s.title || 'Untitled'}
+                </div>
+                <div className="session-list-item-meta">
+                  {s.id.slice(0, 8)}…
+                </div>
               </div>
-            </div>
-            <div style={{ display: 'flex', gap: 6 }}>
-              <button type="button" onClick={() => handleRename(s.id)} title="Rename" aria-label="Rename session">✎</button> {/* <-- CHANGED: now calls PATCH; ADDED: explicit type + aria */}
-              <button type="button" onClick={() => handleDelete(s.id)} title="Delete" aria-label="Delete session">🗑</button> {/* <-- CHANGED: delete on server; ADDED: explicit type + aria */}
-            </div>
-          </li>
-        ))}
+              <div className="session-list-item-actions">
+                {/* <-- ADDED: flex container for action buttons */}
+                <button
+                  type="button"
+                  onClick={() => handleRename(s.id)}
+                  title="Rename"
+                  aria-label="Rename session"
+                  className="session-sidebar-icon-btn" // <-- ADDED: reuse shared icon styles
+                >
+                  ✎
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDelete(s.id)}
+                  title="Delete"
+                  aria-label="Delete session"
+                  className="session-sidebar-icon-btn" // <-- ADDED: reuse shared icon styles
+                >
+                  🗑
+                </button>
+              </div>
+            </li>
+          )
+        })}
       </ul>
 
-      <hr style={{ borderColor: 'rgba(255,255,255,0.08)', margin: '10px 0' }} />
+      <hr className="session-sidebar-divider" />{/* <-- CHANGED: styled divider via CSS */}
 
-      <div style={{ display: 'grid', gap: 6 }}>
-        <button type="button" disabled={disabled} onClick={() => handleExport('json')} title="Download JSON transcript">Export JSON</button> {/* <-- CHANGED: wire to API; ADDED: explicit type */}
-        <button type="button" disabled={disabled} onClick={() => handleExport('md')} title="Download Markdown transcript">Export Markdown</button> {/* <-- CHANGED: wire to API; ADDED: explicit type */}
+      <div className="session-export-actions">
+        {/* <-- ADDED: grid container for export buttons */}
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => handleExport('json')}
+          title="Download JSON transcript"
+          className="session-export-btn" // <-- ADDED: pill-style button
+        >
+          Export JSON
+        </button>
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => handleExport('md')}
+          title="Download Markdown transcript"
+          className="session-export-btn" // <-- ADDED: pill-style button
+        >
+          Export Markdown
+        </button>
       </div>
     </div>
   )

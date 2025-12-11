@@ -1,40 +1,50 @@
 /* client/src/ChatBot.css */
-/* --- Modern dark, glassy chat UI. Functionality unchanged. --- */
+/* --- Modern dark, glassy chat UI, aligned with app-level shell. --- */
 
 /* ========== Container & Layout ========== */
 .chatbot-container {
-  --surface: rgba(10, 15, 25, 0.65);
+  /* Bridge component-scoped tokens to global design system */
+  --surface: rgba(10, 15, 25, 0.65);                  /* kept as subtle inner surface */
   --surface-strong: rgba(15, 22, 36, 0.85);
-  --border: rgba(148, 163, 184, 0.20);
+  --border: var(--af-color-border-subtle);            /* CHANGED: align with global border token */
   --ring: #60a5fa;
-  --text: #e2e8f0;
-  --muted: #94a3b8;
+  --text: var(--af-color-text);                       /* CHANGED: reuse global text token */
+  --muted: var(--af-color-text-muted);                /* CHANGED: reuse global muted token */
 
-  max-width: 900px;
-  width: 92%;
-  margin: 24px auto; /* center on page */
-  padding: 16px 16px 12px;
-  background: linear-gradient(180deg, var(--surface), var(--surface-strong)); /* <-- ADDED: glassy panel */
-  border: 1px solid var(--border); /* <-- ADDED: subtle border */
-  border-radius: 16px; /* <-- ADDED: softer radius */
-  box-shadow:
-    0 10px 30px rgba(0,0,0,0.35),
-    inset 0 1px 0 rgba(255,255,255,0.03); /* <-- ADDED: depth */
-  backdrop-filter: blur(10px); /* <-- ADDED: glass blur (supported) */
+  max-width: 100%;                                    /* CHANGED: fill outer af-app-chat panel */
+  width: 100%;                                        /* CHANGED: no inner width constraint */
+  height: 100%;                                       /* ADDED: let chat-window flex to fill panel */
+  margin: 0;                                          /* CHANGED: rely on outer panel spacing */
+  padding: var(--af-space-3) var(--af-space-4) var(--af-space-3);
+  /* CHANGED: use design-system spacing tokens */
+
+  display: flex;                                      /* ADDED: stack header/window/input vertically */
+  flex-direction: column;                             /* ADDED: column layout inside af-app-chat */
+
+  background: transparent;                            /* CHANGED: outer af-app-chat provides glass bg */
+  border-radius: 0;                                   /* CHANGED: avoid nested rounded panels */
+  border: none;                                       /* CHANGED: avoid double border chrome */
+  box-shadow: none;                                   /* CHANGED: avoid double shadow */
+  backdrop-filter: none;                              /* CHANGED: outer panel already has blur */
 }
 
 /* ========== Header ========== */
 .chat-header {
-  position: sticky; /* <-- ADDED: keep tools visible when scrolling */
+  position: sticky;                                   /* keep tools visible while scrolling */
   top: 0;
   z-index: 2;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex: 0 0 auto;                                     /* ADDED: header height stays fixed in flex column */
   padding-bottom: 0.5rem;
   margin-bottom: 0.5rem;
   border-bottom: 1px solid #334155;
-  background: linear-gradient(180deg, rgba(2,6,23,0.6), rgba(2,6,23,0)); /* <-- ADDED */
+  background: linear-gradient(
+    180deg,
+    rgba(2, 6, 23, 0.7),
+    rgba(2, 6, 23, 0)
+  );
   color: white;
 }
 
@@ -47,13 +57,16 @@
 /* Selects & buttons in the header */
 .chat-controls select,
 .chat-controls button {
-  background: #0f172a; /* <-- CHANGED: slightly darker surface */
+  background: #0f172a;                                /* slightly darker surface */
   color: white;
   border: 1px solid #475569;
-  padding: 0.45rem 0.75rem; /* <-- CHANGED: a hair taller */
-  border-radius: 10px;      /* <-- CHANGED: friendlier */
+  padding: 0.45rem 0.75rem;                           /* a hair taller for better hit area */
+  border-radius: 10px;
   cursor: pointer;
-  transition: background 140ms ease, border-color 140ms ease, transform 60ms ease; /* <-- ADDED */
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    transform 60ms ease;
 }
 
 .chat-controls button:hover,
@@ -63,7 +76,7 @@
 }
 
 .chat-controls button:active {
-  transform: translateY(1px); /* <-- ADDED: subtle press */
+  transform: translateY(1px);                         /* subtle press feedback */
 }
 
 /* Stream toggle (keep markup; style native checkbox) */
@@ -75,8 +88,10 @@
   color: #e2e8f0;
   user-select: none;
 }
+
 .stream-toggle input[type="checkbox"] {
-  width: 36px; height: 22px; /* <-- ADDED: switch-like size */
+  width: 36px;
+  height: 22px;                                       /* switch-like size */
   appearance: none;
   background: #0b1220;
   border: 1px solid #334155;
@@ -84,22 +99,31 @@
   position: relative;
   outline: none;
   cursor: pointer;
-  transition: background 160ms ease, border-color 160ms ease;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease;
 }
+
 .stream-toggle input[type="checkbox"]::after {
   content: "";
   position: absolute;
-  top: 50%; left: 3px;
-  width: 16px; height: 16px;
+  top: 50%;
+  left: 3px;
+  width: 16px;
+  height: 16px;
   transform: translateY(-50%);
   background: #e2e8f0;
   border-radius: 50%;
-  transition: left 160ms ease, background 160ms ease;
+  transition:
+    left 160ms ease,
+    background 160ms ease;
 }
+
 .stream-toggle input[type="checkbox"]:checked {
   background: #0b2a4a;
   border-color: #2563eb;
 }
+
 .stream-toggle input[type="checkbox"]:checked::after {
   left: 17px;
   background: #93c5fd;
@@ -107,38 +131,53 @@
 
 /* ---- Rate limit pill ---- */
 .rate-pill {
-  background: rgba(15, 23, 42, 0.8); /* slate-900-ish */
+  background: rgba(15, 23, 42, 0.8);                  /* slate-900-ish */
   border: 1px solid #334155;
   color: #e2e8f0;
   font-size: 0.8rem;
-  padding: 0.25rem 0.6rem; /* <-- CHANGED: slightly larger */
+  padding: 0.25rem 0.6rem;
   border-radius: 999px;
   line-height: 1;
 }
 
 /* ========== Chat Window ========== */
 .chat-window {
-  display: flex;           /* <-- ADDED: vertical list */
+  display: flex;
   flex-direction: column;
-  gap: 12px;               /* <-- ADDED: space between bubbles */
+  gap: 12px;
   padding: 10px 8px 4px 8px;
-  height: min(68vh, 720px); /* <-- ADDED: responsive height */
+  flex: 1 1 auto;                                     /* CHANGED: grow/shrink in flex column */
+  min-height: 0;                                      /* ADDED: allow internal scrolling */
+  max-height: 100%;                                   /* ADDED: respect outer af-app-chat height cap */
   overflow-y: auto;
   scroll-behavior: smooth;
-  background: linear-gradient(180deg, rgba(2,6,23,0.35), rgba(2,6,23,0)); /* <-- ADDED */
+  background: linear-gradient(
+    180deg,
+    rgba(2, 6, 23, 0.35),
+    rgba(2, 6, 23, 0)
+  );
   border-radius: 12px;
 }
 
 /* Fancy scrollbar (supported browsers) */
-.chat-window::-webkit-scrollbar { width: 10px; }
-.chat-window::-webkit-scrollbar-track { background: transparent; }
+.chat-window::-webkit-scrollbar {
+  width: 10px;
+}
+
+.chat-window::-webkit-scrollbar-track {
+  background: transparent;
+}
+
 .chat-window::-webkit-scrollbar-thumb {
   background: #1f2a3a;
   border: 2px solid transparent;
   border-radius: 999px;
   background-clip: padding-box;
 }
-.chat-window:hover::-webkit-scrollbar-thumb { background: #2b3a52; }
+
+.chat-window:hover::-webkit-scrollbar-thumb {
+  background: #2b3a52;
+}
 
 /* ========== Messages ========== */
 .message {
@@ -148,11 +187,14 @@
   max-width: 82%;
 }
 
-.message.bot { /* assistant left */
+.message.bot {
+  /* assistant left */
   justify-content: flex-start;
 }
-.message.user { /* user right */
-  margin-left: auto;       /* <-- ADDED: push to right side */
+
+.message.user {
+  /* user right */
+  margin-left: auto;
   justify-content: flex-end;
 }
 
@@ -162,7 +204,7 @@
   padding: 10px 12px;
   border-radius: 12px;
   border: 1px solid #273244;
-  box-shadow: 0 1px 0 rgba(255,255,255,0.04) inset;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset;
 }
 
 .message.bot .message-content {
@@ -171,7 +213,7 @@
 }
 
 .message.user .message-content {
-  background: linear-gradient(180deg, #0b3b7a, #0a2f61); /* <-- ADDED: calm blue */
+  background: linear-gradient(180deg, #0b3b7a, #0a2f61);
   border-color: #1e3a8a;
   color: #dbeafe;
 }
@@ -181,21 +223,24 @@
 .message.user::after {
   content: "";
   flex: 0 0 28px;
-  width: 28px; height: 28px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
   border: 1px solid #334155;
   background: #0b1220;
-  box-shadow: 0 1px 0 rgba(255,255,255,0.05) inset;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.05) inset;
 }
+
 .message.bot::before {
-  /* Simple robot icon circle using data URI SVG */ /* <-- ADDED */
+  /* Simple robot icon circle using gradients */
   background:
     radial-gradient(circle at 50% 45%, #93c5fd 0 6px, transparent 7px),
     linear-gradient(#93c5fd, #93c5fd) no-repeat 6px 16px / 16px 2px,
     #0b1220;
 }
+
 .message.user::after {
-  /* User dot + ring */ /* <-- ADDED */
+  /* User dot + ring */
   background:
     radial-gradient(circle at 50% 50%, #38bdf8 0 6px, transparent 7px),
     #0b1220;
@@ -207,8 +252,14 @@
   color: #94a3b8;
   margin-top: 2px;
 }
-.message.user .timestamp { text-align: left; }
-.message.bot .timestamp { text-align: right; }
+
+.message.user .timestamp {
+  text-align: left;
+}
+
+.message.bot .timestamp {
+  text-align: right;
+}
 
 /* Typing indicator bubble */
 .message.bot.typing-indicator {
@@ -218,19 +269,35 @@
   padding: 10px 12px;
   width: fit-content;
 }
+
 .message.bot.typing-indicator .dot {
   display: inline-block;
-  width: 6px; height: 6px;
+  width: 6px;
+  height: 6px;
   margin-right: 4px;
   border-radius: 50%;
   background: #cbd5e1;
   animation: pulse 1.2s infinite ease-in-out;
 }
-.message.bot.typing-indicator .dot:nth-child(2) { animation-delay: 0.15s; }
-.message.bot.typing-indicator .dot:nth-child(3) { animation-delay: 0.3s; }
+
+.message.bot.typing-indicator .dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.message.bot.typing-indicator .dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
 @keyframes pulse {
-  0%, 100% { opacity: 0.25; transform: translateY(0); }
-  50% { opacity: 1; transform: translateY(-2px); }
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
 }
 
 /* ========== Input Bar ========== */
@@ -238,38 +305,51 @@
   display: flex;
   gap: 8px;
   align-items: center;
+  flex: 0 0 auto;                                     /* ADDED: input bar stays fixed at bottom */
   margin-top: 12px;
   padding: 8px 8px 8px 12px;
-  background: rgba(10, 15, 25, 0.7); /* <-- ADDED: pill bg */
+  background: rgba(10, 15, 25, 0.7);
   border: 1px solid #334155;
-  border-radius: 999px;             /* <-- ADDED: full pill */
+  border-radius: 999px;
 }
 
 .input-container input {
   flex: 1;
-  background: transparent; /* <-- CHANGED: clear inside pill */
+  background: transparent;
   border: none;
   color: var(--text);
   font-size: 0.98rem;
   outline: none;
 }
-.input-container input::placeholder { color: #7c8da8; }
+
+.input-container input::placeholder {
+  color: #7c8da8;
+}
 
 .input-container button {
-  background: linear-gradient(180deg, #2563eb, #1d4ed8); /* <-- ADDED: primary */
+  background: linear-gradient(180deg, #2563eb, #1d4ed8);
   color: white;
   border: 1px solid #1e40af;
   border-radius: 999px;
   padding: 0.55rem 0.95rem;
   font-weight: 600;
-  transition: transform 60ms ease, filter 140ms ease, background 160ms ease;
+  transition:
+    transform 60ms ease,
+    filter 140ms ease,
+    background 160ms ease;
 }
-.input-container button:hover { filter: brightness(1.05); }
-.input-container button:active { transform: translateY(1px); }
+
+.input-container button:hover {
+  filter: brightness(1.05);
+}
+
+.input-container button:active {
+  transform: translateY(1px);
+}
 
 /* Focus ring for accessibility */
 .input-container:focus-within {
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.35); /* <-- ADDED: ring */
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.35);
 }
 
 /* ========== Markdown & Code ========== */
@@ -279,12 +359,23 @@
   word-wrap: break-word;
 }
 
-.markdown p { margin: 0.45rem 0; }
-.markdown a { color: #60a5fa; text-decoration: underline; }
+.markdown p {
+  margin: 0.45rem 0;
+}
+
+.markdown a {
+  color: #60a5fa;
+  text-decoration: underline;
+}
 
 .markdown ul,
-.markdown ol { margin: 0.5rem 0 0.5rem 1.25rem; }
-.markdown li + li { margin-top: 0.25rem; }
+.markdown ol {
+  margin: 0.5rem 0 0.5rem 1.25rem;
+}
+
+.markdown li + li {
+  margin-top: 0.25rem;
+}
 
 .markdown blockquote {
   border-left: 3px solid #475569;
@@ -302,11 +393,13 @@
   margin: 0.6rem 0;
   overflow: auto;
 }
+
 .markdown th,
 .markdown td {
   border: 1px solid #334155;
   padding: 0.4rem 0.5rem;
 }
+
 .markdown th {
   background: rgba(30, 41, 59, 0.8);
   color: #e5e7eb;
@@ -319,18 +412,30 @@
   border: 1px solid #334155;
   padding: 0.1rem 0.3rem;
   border-radius: 4px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
+  font-family:
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Monaco,
+    Consolas,
+    "Liberation Mono",
+    "Courier New",
+    monospace;
   font-size: 0.95em;
 }
 
 /* Fenced code blocks with a copy button */
-.codeblock { position: relative; margin: 0.6rem 0; }
+.codeblock {
+  position: relative;
+  margin: 0.6rem 0;
+}
+
 .codeblock pre {
   margin: 0;
   overflow: auto;
   border: 1px solid #334155;
-  border-radius: 8px;         /* <-- CHANGED: slightly larger */
-  /* background removed to let Prism theme control it */
+  border-radius: 8px;
+  /* background intentionally left for Prism theme */
 }
 
 /* Copy button */
@@ -345,17 +450,34 @@
   padding: 0.28rem 0.55rem;
   font-size: 0.8rem;
   cursor: pointer;
-  transition: background 140ms ease, border-color 140ms ease;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease;
 }
-.copy-btn:hover { background: #1e293b; }
+
+.copy-btn:hover {
+  background: #1e293b;
+}
 
 /* Copy button “Copied!” feedback */
-.copy-btn .copy-done { display: none; }
-.copy-btn[data-copied="true"] .copy-default { display: none; }
-.copy-btn[data-copied="true"] .copy-done { display: inline; }
+.copy-btn .copy-done {
+  display: none;
+}
+
+.copy-btn[data-copied="true"] .copy-default {
+  display: none;
+}
+
+.copy-btn[data-copied="true"] .copy-done {
+  display: inline;
+}
 
 /* ========== Reduced Motion Respect ========== */
 @media (prefers-reduced-motion: reduce) {
-  .chat-window { scroll-behavior: auto; }
-  .message.bot.typing-indicator .dot { animation: none; }
+  .chat-window {
+    scroll-behavior: auto;
+  }
+  .message.bot.typing-indicator .dot {
+    animation: none;
+  }
 }

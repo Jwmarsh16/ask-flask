@@ -2,12 +2,67 @@
 /* --- Global foundation: gradient sky, typography, resets. --- */
 
 :root {
+  /* Existing simple tokens (kept for backward compatibility) */
   --bg: #0a0f1a;
   --bg-alt: #0b1220;
   --text: rgba(255, 255, 255, 0.92);
   --muted: #9aa7bd;
 
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+  /* Design system tokens (new) for professional, consistent styling */
+  --af-color-bg: #050712; /* primary app background */
+  --af-color-bg-alt: #0b1220; /* secondary background / panels */
+  --af-color-bg-elevated: rgba(10, 14, 30, 0.92); /* glass panels */
+  --af-color-border-subtle: rgba(255, 255, 255, 0.06); /* subtle panel borders */
+  --af-color-border-strong: rgba(148, 163, 184, 0.4); /* stronger borders for accents */
+  --af-color-accent: #37e3ff; /* primary accent (buttons, active state) */
+  --af-color-accent-soft: rgba(55, 227, 255, 0.12); /* soft accent background */
+  --af-color-accent-strong: #00c2ff; /* stronger accent for key CTAs */
+  --af-color-accent-secondary: #818cf8; /* secondary accent for badges/labels */
+  --af-color-text: rgba(245, 247, 255, 0.98); /* main text color */
+  --af-color-text-muted: #9aa3c6; /* secondary / helper text */
+  --af-color-danger: #ff4b6b; /* error / destructive actions */
+  --af-color-code-bg: #111827; /* code block background */
+  --af-color-code-border: rgba(148, 163, 184, 0.5); /* code block border */
+  --af-color-chip-bg: rgba(15, 23, 42, 0.85); /* small pill / chip bg */
+
+  /* Radii */
+  --af-radius-xs: 4px;
+  --af-radius-sm: 8px;
+  --af-radius-md: 12px;
+  --af-radius-lg: 18px;
+  --af-radius-pill: 999px;
+
+  /* Shadows */
+  --af-shadow-soft: 0 18px 40px rgba(0, 0, 0, 0.55);
+  --af-shadow-inner: 0 0 0 1px rgba(255, 255, 255, 0.04);
+
+  /* Spacing scale */
+  --af-space-1: 4px;
+  --af-space-2: 8px;
+  --af-space-3: 12px;
+  --af-space-4: 16px;
+  --af-space-5: 24px;
+  --af-space-6: 32px;
+  --af-space-7: 40px;
+
+  /* Typography */
+  --af-font-sans: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI,
+    Roboto, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji",
+    "Segoe UI Symbol"; /* centralize font stack for reuse */
+  --af-font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+
+  --af-text-xs: 11px;
+  --af-text-sm: 13px;
+  --af-text-md: 15px;
+  --af-text-lg: 17px;
+
+  /* Layout constants */
+  --af-header-height: 60px;
+  --af-sidebar-width: 260px;
+  --af-content-max-width: 1200px;
+
+  font-family: var(--af-font-sans); /* CHANGED: reuse design token for font stack */
   line-height: 1.5;
   font-weight: 400;
 
@@ -16,30 +71,39 @@
   background:
     radial-gradient(1200px 600px at 20% -10%, rgba(37, 99, 235, 0.22), transparent 60%),
     radial-gradient(900px 500px at 100% 0%, rgba(14, 165, 233, 0.18), transparent 60%),
-    linear-gradient(180deg, #0b1220, #070b14);
+    linear-gradient(180deg, #0b1220, #070b14); /* keeps existing starry gradient */
   background-color: var(--bg);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-* { box-sizing: border-box; }
+* {
+  box-sizing: border-box;
+}
 
-html, body, #root {
+html,
+body,
+#root {
   height: 100%;
 }
 
 body {
   margin: 0;
-  display: block;            /* <-- CHANGED: allow natural flow (was flex/center) */
+  display: block;            /* allow natural flow (was flex/center) */
   min-width: 320px;
   min-height: 100vh;
+  color: var(--af-color-text);         /* NEW: ensure body text uses design token */
+  background-color: var(--af-color-bg); /* NEW: solid fallback under gradients */
 }
 
 a {
   color: #93c5fd;
   text-decoration: none;
 }
-a:hover { text-decoration: underline; }
+
+a:hover {
+  text-decoration: underline;
+}
 
 button {
   font-family: inherit;

@@ -1,52 +1,55 @@
 // client/src/App.jsx
 import './App.css'
 import ChatBot from './components/ChatBot'
-import SessionSidebar from './components/SessionSidebar' // <-- ADDED (kept): sidebar component import
+import SessionSidebar from './components/SessionSidebar' // <-- sidebar component import
 
-import { useEffect, useState, useCallback } from 'react' // <-- ADDED (kept): state for sessionId persistence
+import { useEffect, useState, useCallback } from 'react' // <-- React hooks for sessionId persistence
 
 function App() {
-  const [sessionId, setSessionId] = useState(null) // <-- ADDED (kept): hold current session id
-
-  // REMOVED: local UUID seeding (genId) to avoid mismatch with backend-created IDs.
-  // The Sessions API now seeds the first session if none exist, and we persist
-  // only the active id that the server returns. // <-- CHANGED: defer seeding to server
+  const [sessionId, setSessionId] = useState(null) // hold current session id
 
   // Initialize sessionId from LocalStorage only; if none, leave null and let
-  // SessionSidebar create the first session on the server and report back. // <-- CHANGED: do not pre-seed locally
+  // SessionSidebar create the first session on the server and report back.
   useEffect(() => {
     const stored = localStorage.getItem('askFlaskSessionId')
-    setSessionId(stored || null) // <-- CHANGED: avoid generating a fake id
-  }, []) // <-- CHANGED: remove genId dependency
+    setSessionId(stored || null)
+  }, [])
 
-  // Update LocalStorage when the user selects/creates a different session. // (unchanged)
+  // Update LocalStorage when the user selects/creates a different session.
   const handleSelectSession = useCallback((id) => {
     setSessionId(id)
     localStorage.setItem('askFlaskSessionId', id)
   }, [])
 
   return (
-    <div className="app-container">
-      <div className="app-shell">
-        <header className="app-header">{/* <-- CHANGED (kept): polished title header */}
-          <div className="app-logo" aria-hidden="true" />{/* <-- ADDED (kept): decorative logo block */}
-          <h1 className="app-title">Ask-Flask</h1>{/* <-- CHANGED (kept): gradient text title */}
-          {/* <p className="app-subtitle">AI chat with production-grade UX</p> */}{/* <-- ADDED (kept): optional tagline */}
+    <div className="app-container af-app-container">
+      {/* af-* class added to hook into the new design system tokens in index.css */}
+      <div className="app-shell af-app-shell">
+        <header className="app-header af-app-header">
+          {/* af-app-header allows us to style a proper product-style top bar in App.css */}
+          <div className="app-logo af-app-logo" aria-hidden="true" />
+          {/* decorative logo block (glow/orb) for visual identity */}
+          <h1 className="app-title af-app-title">Ask-Flask</h1>
+          {/* gradient text title; af-app-title will handle typography + spacing */}
+          {/* <p className="app-subtitle af-app-subtitle">AI chat with production-grade UX</p> */}
+          {/* optional tagline kept commented for now */}
         </header>
 
-        {/* Simple two-column layout without new CSS dependencies. */}
-        <div className="app-main" style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: '16px' }}>
-          <aside>
+        {/* Main layout now controlled via CSS class instead of inline grid style */}
+        <div className="app-main af-app-main">
+          {/* af-app-main will define the 2-column grid using CSS, not inline styles */}
+          <aside className="app-sidebar af-app-sidebar">
+            {/* sidebar wrapper class so we can give it a glass panel and scroll behavior */}
             <SessionSidebar
-              sessionId={sessionId}                 // <-- ADDED (kept): pass current session id
-              onSelectSession={handleSelectSession}  // <-- ADDED (kept): update handler
+              sessionId={sessionId}
+              onSelectSession={handleSelectSession}
             />
           </aside>
-          <main>
-            {/* Pass the session switcher so ChatBot can create + select a new session. */}
+          <main className="app-chat af-app-chat">
+            {/* main chat area wrapper; styled as primary content panel */}
             <ChatBot
               sessionId={sessionId}
-              onSelectSession={handleSelectSession}  // <-- ADDED: allow ChatBot to select new session
+              onSelectSession={handleSelectSession} // allow ChatBot to create/select sessions
             />
           </main>
         </div>
