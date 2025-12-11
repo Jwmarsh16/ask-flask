@@ -12,13 +12,13 @@ def _client_ip():
     Prefer edge-provided IPs when behind a proxy/CDN (Cloudflare on Render).
     Falls back to Werkzeug's remote_addr via get_remote_address().
     """
-    ip = request.headers.get("CF-Connecting-IP")  # <-- CHANGED: prefer CF header
+    ip = request.headers.get("CF-Connecting-IP")  # prefer CF header for real client IP
     if ip:
         return ip.strip()
-    xff = request.headers.get("X-Forwarded-For")  # <-- CHANGED: then first XFF hop
+    xff = request.headers.get("X-Forwarded-For")  # then first XFF hop
     if xff:
         return xff.split(",")[0].strip()
-    return get_remote_address()  # <-- unchanged fallback
+    return get_remote_address()  # unchanged fallback to Werkzeug's remote addr
 
 
 def init_rate_limiter(app) -> Limiter:
@@ -32,12 +32,12 @@ def init_rate_limiter(app) -> Limiter:
             return limiter  # already initialized
 
     # Ensure headers are emitted reliably (belt & suspenders).
-    app.config["RATELIMIT_HEADERS_ENABLED"] = True  # <-- ADDED: force header injection
+    app.config["RATELIMIT_HEADERS_ENABLED"] = True  # force header injection
 
     limiter = Limiter(
-        key_func=_client_ip,          # <-- CHANGED: respect CF/XFF for per-IP limits
+        key_func=_client_ip,          # respect CF/XFF so limits are truly per-client-IP
         app=app,
-        default_limits=["300/minute"],  # global safety net (unchanged)
+        default_limits=["300/minute"],  # global safety net (non-chat endpoints too)
         storage_uri="memory://",        # per-instance (fine for single dyno)
         headers_enabled=True,           # emit X-RateLimit-* and Retry-After
     )
@@ -54,18 +54,24 @@ def init_rate_limiter(app) -> Limiter:
             "code": 429,
             "request_id": getattr(g, "request_id", None),
         }
-        return jsonify(payload), 429  # <-- already unified shape
+        return jsonify(payload), 429  # unified JSON error shape for 429s
 
-    # ------------------------ KEY FIX: SHARED LIMIT ------------------------
-    # Use ONE shared budget (15/min) for both chat endpoints so they cannot
-    # bypass each other by switching routes.
-    shared_chat_limit = limiter.shared_limit("15/minute", scope="chat-endpoints")  # <-- ADDED
+    # ------------------------ KEY CHANGE: STRICT SHARED LIMIT ------------------------
+    # Use ONE shared budget for both chat endpoints so they cannot bypass each other.
+    # This protects your OpenAI bill while still allowing a reasonable demo:
+    # - 5 requests per minute
+    # - 50 requests per hour
+    # - 100 requests per day
+    shared_chat_limit = limiter.shared_limit(
+        "5/minute;50/hour;100/day",  # stricter per-IP budget for OpenAI-backed chat
+        scope="chat-endpoints",
+    )
 
     # Wrap and re-register endpoints so the limit applies AND headers appear.
     if "chat" in app.view_functions:
-        app.view_functions["chat"] = shared_chat_limit(app.view_functions["chat"])           # <-- CHANGED: assign wrapped view
+        app.view_functions["chat"] = shared_chat_limit(app.view_functions["chat"])  # wrap /api/chat
     if "chat_stream" in app.view_functions:
-        app.view_functions["chat_stream"] = shared_chat_limit(app.view_functions["chat_stream"])  # <-- ADDED
+        app.view_functions["chat_stream"] = shared_chat_limit(app.view_functions["chat_stream"])  # wrap /api/chat/stream
 
     # NOTE: We intentionally do NOT also apply per-route limits here to avoid
     # double-counting or confusing headers. The shared limit is the source of truth.
