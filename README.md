@@ -43,45 +43,48 @@ A production-style LLM chat app with **React + Flask**, **SSE streaming**, **str
 ---
 
 ## Architecture
-
 ```mermaid
 flowchart LR
-  subgraph Client [React (Vite)]
-    UI[Chat UI\nreact-markdown + Prism\nCopy buttons]
-    Sidebar[Session Sidebar\nlist/create/delete/rename/export]
-    UI -- SSE / fetch --> API
+  subgraph Client["Client (React + Vite)"]
+    UI["Chat UI<br/>react-markdown + Prism<br/>Copy buttons"]
+    Sidebar["Session Sidebar<br/>list/create/delete/rename/export"]
+    UI -- "SSE / fetch" --> API
   end
 
-  subgraph Server [Flask API]
-    Routes[/server/app.py\n/health\n/api/chat\n/api/chat/stream\n/api/sessions*\n/api/rag/*/]
-    Obs[(observability.py\nJSON logs, request_id, errors)]
-    Sec[(security.py\nCSP, HSTS, XFO,\nReferrer-Policy, Permissions-Policy)]
-    Limit[(ratelimit.py\nFlask-Limiter v3\nshared budgets)]
-    Svc[services/openai_client.py\nretries + breaker]
-    Store[services/session_store.py\nsessions/messages + memory]
-    Schemas[(schemas.py\nPydantic v2 DTOs)]
-    PII[(security_utils/pii_redaction.py)]
-    RAG[rag/* + agents/*\nchunker, embeddings,\nFAISS, retriever, evals, agent]
+  subgraph Server["Flask API"]
+    API["Routes (server/app.py)<br/>/health<br/>/api/chat<br/>/api/chat/stream<br/>/api/sessions*<br/>/api/rag/*"]
+    Obs["observability.py<br/>JSON logs, request_id, errors"]
+    Sec["security.py<br/>CSP, HSTS, XFO<br/>Referrer-Policy, Permissions-Policy"]
+    Limit["ratelimit.py<br/>Flask-Limiter v3<br/>shared budgets"]
+    Svc["services/openai_client.py<br/>retries + breaker"]
+    Store["services/session_store.py<br/>sessions/messages + memory"]
+    Schemas["schemas.py<br/>Pydantic v2 DTOs"]
+    PII["security_utils/pii_redaction.py"]
+    RAG["rag/* + agents/*<br/>chunker, embeddings<br/>FAISS, retriever, evals, agent"]
   end
 
-  subgraph DB_And_Files [SQLite (dev) / Postgres (prod) + instance files]
+  subgraph DB_And_Files["SQLite (dev) / Postgres (prod) + instance files"]
     T1[(sessions)]
     T2[(messages)]
     F1[(server/instance/rag_index.faiss)]
     F2[(server/instance/rag_meta.json)]
   end
 
-  UI <--> Routes
-  Routes --> Sec
-  Routes --> Limit
-  Routes --> Obs
-  Routes --> Schemas
-  Routes --> Svc
-  Routes --> Store
-  Routes --> RAG
+  UI <--> API
+  API --> Sec
+  API --> Limit
+  API --> Obs
+  API --> Schemas
+  API --> Svc
+  API --> Store
+  API --> RAG
   RAG --> PII
-  Store <---> DB_And_Files
-  RAG <---> DB_And_Files
+
+  Store <--> T1
+  Store <--> T2
+  RAG <--> F1
+  RAG <--> F2
+```
 
 
 **Principles:** small composable layers; typed DTOs; unified JSON error envelopes; SSE for realtime UX; security headers and rate limits on by default; observability everywhere.
