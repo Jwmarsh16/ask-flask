@@ -70,6 +70,7 @@ flowchart LR
   end
 
   subgraph RagFiles["RAG index files (server/instance)"]
+  
     IDX[(rag_index.faiss)]
     META[(rag_meta.json)]
   end
@@ -77,14 +78,15 @@ flowchart LR
   UI -- "SSE / fetch" --> Routes
   Sidebar --> Routes
 
+  RAG --> PII
+  Routes --> OpenAI
+  Routes --> Store
+  Routes --> RAG
   Routes --> Sec
   Routes --> Limit
   Routes --> Obs
   Routes --> Schemas
-  Routes --> OpenAI
-  Routes --> Store
-  Routes --> RAG
-  RAG --> PII
+
 
   Store <--> DB
   DB --> Sessions
