@@ -72,6 +72,8 @@ flowchart LR
   end
 
   subgraph RagFiles["RAG index files<br/>server/instance"]
+    direction TB
+    Spacer[" "]:::spacer
     IDX["rag_index.faiss"]
     META["rag_meta.json"]
   end
@@ -95,6 +97,9 @@ flowchart LR
 
   RAG <--> IDX
   RAG <--> META
+
+  classDef spacer fill:transparent,stroke:transparent,color:transparent;
+
 ```
 
 
