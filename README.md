@@ -6,7 +6,7 @@
 A production-style LLM chat app with **React + Flask**, **SSE streaming**, **strict security headers**, **rate limiting**, **structured JSON logs**, and **server-backed Sessions** (create, rename, delete, export). Includes **session-pinned memory** and a **mini-RAG module** (FAISS + PII redaction + MMR + simple evals + micro-agent).
 
 
-[![CI](https://github.com/Jwmarsh16/ask-flask/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/<OWNER>/<REPO>/actions/workflows/ci.yml)
+[![CI](https://github.com/Jwmarsh16/ask-flask/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Jwmarsh16/ask-flask/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/Python-3.11.9-informational)
 ![Node](https://img.shields.io/badge/Node-20.x-informational)
 ![License](https://img.shields.io/badge/License-MIT-lightgrey)
