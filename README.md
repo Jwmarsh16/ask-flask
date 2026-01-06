@@ -45,41 +45,38 @@ A production-style LLM chat app with **React + Flask**, **SSE streaming**, **str
 ## Architecture
 ```mermaid
 flowchart LR
-  %% Clean, GitHub-friendly architecture diagram (minimal cross-links)
 
-  subgraph Client["Client (React + Vite)"]  %% CHANGED: quoted label for GitHub Mermaid
-    UI["Chat UI<br/>SSE + Markdown + Prism<br/>Copy buttons"]  %% CHANGED: <br/> for reliable line breaks
-    Sidebar["Sessions UI<br/>list/create/rename/delete/export"]  %% CHANGED: tighter label, clearer intent
+  subgraph Client["Client (React + Vite)"]
+    UI["Chat UI<br/>SSE streaming<br/>Markdown + Prism<br/>Copy buttons"]
+    Sidebar["Sessions UI<br/>list/create/rename/delete<br/>export JSON/MD"]
   end
 
-  subgraph Server["Flask API"]  %% CHANGED: quoted label
-    Routes["Routes (server/app.py)<br/>/health · /api/chat · /api/chat/stream<br/>/api/sessions* · /api/rag/*"]  %% CHANGED: reduce vertical height, keep readable
-    Sec["security.py<br/>CSP · HSTS · XFO<br/>Referrer-Policy · Permissions-Policy"]  %% CHANGED: consistent separators
-    Limit["ratelimit.py<br/>Flask-Limiter v3<br/>shared budgets"]  %% CHANGED: stable line breaks
-    Obs["observability.py<br/>JSON logs · request_id<br/>error envelopes"]  %% CHANGED: clearer wording
-    Schemas["schemas.py<br/>Pydantic v2 DTOs"]  %% CHANGED: stable line breaks
-    OpenAI["services/openai_client.py<br/>timeouts · retries · breaker"]  %% CHANGED: clarify what it does
-    Store["services/session_store.py<br/>sessions/messages + memory"]  %% CHANGED: stable line breaks
-    RAG["rag/* + agents/*<br/>chunking · embeddings<br/>FAISS · retrieval · evals"]  %% CHANGED: concise + consistent
-    PII["security_utils/pii_redaction.py<br/>redact at ingest"]  %% CHANGED: explain role
+  subgraph Server["Flask API"]
+    Routes["Routes (server/app.py)<br/>/health<br/>/api/chat<br/>/api/chat/stream<br/>/api/sessions*<br/>/api/rag/*"]
+    Sec["security.py<br/>CSP + HSTS + XFO<br/>Referrer-Policy + Permissions-Policy"]
+    Limit["ratelimit.py<br/>Flask-Limiter v3<br/>shared budgets"]
+    Obs["observability.py<br/>structured logs + request_id<br/>JSON error envelopes"]
+    Schemas["schemas.py<br/>Pydantic v2 DTOs"]
+    OpenAI["services/openai_client.py<br/>timeouts + retries<br/>mini circuit breaker"]
+    Store["services/session_store.py<br/>sessions + messages<br/>pinned memory"]
+    RAG["rag/* + agents/*<br/>chunker + embeddings<br/>FAISS + retrieval<br/>evals"]
+    PII["security_utils/pii_redaction.py<br/>redact at ingest"]
   end
 
-  subgraph Persistence["Persistence"]  %% CHANGED: hub subgraph to reduce crossing edges
-    DB[(SQLite dev / Postgres prod)]  %% CHANGED: single hub node
+  subgraph Persistence["Persistence"]
+    DB[(SQLite dev / Postgres prod)]
     Sessions[(sessions)]
     Messages[(messages)]
   end
 
-  subgraph RagFiles["RAG index files (server/instance)"]  %% CHANGED: hub subgraph for files
+  subgraph RagFiles["RAG index files (server/instance)"]
     IDX[(rag_index.faiss)]
     META[(rag_meta.json)]
   end
 
-  %% Client -> Server
-  UI -- "SSE / fetch" --> Routes  %% CHANGED: quote edge label
+  UI -- "SSE / fetch" --> Routes
   Sidebar --> Routes
 
-  %% Server internals
   Routes --> Sec
   Routes --> Limit
   Routes --> Obs
@@ -89,16 +86,12 @@ flowchart LR
   Routes --> RAG
   RAG --> PII
 
-  %% Persistence wiring (hubbed)
-  Store <--> DB  %% CHANGED: connect to DB hub (cleaner)
+  Store <--> DB
   DB --> Sessions
   DB --> Messages
 
-  %% RAG files wiring (hubbed)
-  RAG <--> IDX  %% CHANGED: direct to file nodes (cleaner than subgraph-as-node edges)
+  RAG <--> IDX
   RAG <--> META
-
-
 ```
 
 
