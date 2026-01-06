@@ -45,34 +45,38 @@ A production-style LLM chat app with **React + Flask**, **SSE streaming**, **str
 ## Architecture
 ```mermaid
 flowchart LR
-  subgraph Client["Client (React + Vite)"]
-    UI["Chat UI<br/>react-markdown + Prism<br/>Copy buttons"]
-    Sidebar["Session Sidebar<br/>list/create/delete/rename/export"]
+  %% Clean, GitHub-friendly architecture diagram (minimal cross-links)
+
+  subgraph Client["Client (React + Vite)"]  %% CHANGED: quoted label for GitHub Mermaid
+    UI["Chat UI<br/>SSE + Markdown + Prism<br/>Copy buttons"]  %% CHANGED: <br/> for reliable line breaks
+    Sidebar["Sessions UI<br/>list/create/rename/delete/export"]  %% CHANGED: tighter label, clearer intent
   end
 
-  subgraph Server["Flask API"]
-    Routes["Routes (server/app.py)<br/>/health<br/>/api/chat<br/>/api/chat/stream<br/>/api/sessions*<br/>/api/rag/*"]
-    Obs["observability.py<br/>JSON logs, request_id, errors"]
-    Sec["security.py<br/>CSP, HSTS, XFO<br/>Referrer-Policy, Permissions-Policy"]
-    Limit["ratelimit.py<br/>Flask-Limiter v3<br/>shared budgets"]
-    Svc["services/openai_client.py<br/>retries + breaker"]
-    Store["services/session_store.py<br/>sessions/messages + memory"]
-    Schemas["schemas.py<br/>Pydantic v2 DTOs"]
-    RAG["rag/* + agents/*<br/>chunker, embeddings<br/>FAISS, retriever, evals, agent"]
-    PII["security_utils/pii_redaction.py"]
+  subgraph Server["Flask API"]  %% CHANGED: quoted label
+    Routes["Routes (server/app.py)<br/>/health · /api/chat · /api/chat/stream<br/>/api/sessions* · /api/rag/*"]  %% CHANGED: reduce vertical height, keep readable
+    Sec["security.py<br/>CSP · HSTS · XFO<br/>Referrer-Policy · Permissions-Policy"]  %% CHANGED: consistent separators
+    Limit["ratelimit.py<br/>Flask-Limiter v3<br/>shared budgets"]  %% CHANGED: stable line breaks
+    Obs["observability.py<br/>JSON logs · request_id<br/>error envelopes"]  %% CHANGED: clearer wording
+    Schemas["schemas.py<br/>Pydantic v2 DTOs"]  %% CHANGED: stable line breaks
+    OpenAI["services/openai_client.py<br/>timeouts · retries · breaker"]  %% CHANGED: clarify what it does
+    Store["services/session_store.py<br/>sessions/messages + memory"]  %% CHANGED: stable line breaks
+    RAG["rag/* + agents/*<br/>chunking · embeddings<br/>FAISS · retrieval · evals"]  %% CHANGED: concise + consistent
+    PII["security_utils/pii_redaction.py<br/>redact at ingest"]  %% CHANGED: explain role
   end
 
-  subgraph Storage["Storage (SQLite dev / Postgres prod) + instance files"]
-    DB[(Database)]
+  subgraph Persistence["Persistence"]  %% CHANGED: hub subgraph to reduce crossing edges
+    DB[(SQLite dev / Postgres prod)]  %% CHANGED: single hub node
     Sessions[(sessions)]
     Messages[(messages)]
-    Files[(RAG index files)]
-    F1[(server/instance/rag_index.faiss)]
-    F2[(server/instance/rag_meta.json)]
+  end
+
+  subgraph RagFiles["RAG index files (server/instance)"]  %% CHANGED: hub subgraph for files
+    IDX[(rag_index.faiss)]
+    META[(rag_meta.json)]
   end
 
   %% Client -> Server
-  UI -- "SSE / fetch" --> Routes
+  UI -- "SSE / fetch" --> Routes  %% CHANGED: quote edge label
   Sidebar --> Routes
 
   %% Server internals
@@ -80,19 +84,20 @@ flowchart LR
   Routes --> Limit
   Routes --> Obs
   Routes --> Schemas
-  Routes --> Svc
+  Routes --> OpenAI
   Routes --> Store
   Routes --> RAG
   RAG --> PII
 
-  %% Storage wiring (use hubs to avoid line spaghetti)
-  Store <--> DB
+  %% Persistence wiring (hubbed)
+  Store <--> DB  %% CHANGED: connect to DB hub (cleaner)
   DB --> Sessions
   DB --> Messages
 
-  RAG <--> Files
-  Files --> F1
-  Files --> F2
+  %% RAG files wiring (hubbed)
+  RAG <--> IDX  %% CHANGED: direct to file nodes (cleaner than subgraph-as-node edges)
+  RAG <--> META
+
 
 ```
 
