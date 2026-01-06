@@ -1,41 +1,44 @@
-
 ````markdown
 <!-- README.md -->
+
 # Ask-Flask
 
-> A production-style LLM chat app with **React + Flask**, **SSE streaming**, **strict security headers**, **rate limiting**, **structured JSON logs**, and **server-backed Sessions** (create/rename/delete/export). Now with **session-pinned memory** **and a mini-RAG module** (FAISS + PII redaction + MMR + simple evals). <!-- CHANGED: mention RAG -->
+A production-style LLM chat app with **React + Flask**, **SSE streaming**, **strict security headers**, **rate limiting**, **structured JSON logs**, and **server-backed Sessions** (create, rename, delete, export). Includes **session-pinned memory** and a **mini-RAG module** (FAISS + PII redaction + MMR + simple evals + micro-agent).
 
-<p align="center">
-  <!-- Replace with real badge URLs when ready -->
-  <em>Badges:</em>
-  <img alt="CI" src="https://img.shields.io/badge/CI-GitHub_Actions-blue" />
-  <img alt="Python" src="https://img.shields.io/badge/Python-3.11.9-informational" />
-  <img alt="Node" src="https://img.shields.io/badge/Node-20.x-informational" />
-  <img alt="License" src="https://img.shields.io/badge/License-MIT-lightgrey" />
-</p>
+
+[![CI](https://github.com/Jwmarsh16/ask-flask/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/<OWNER>/<REPO>/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/Python-3.11.9-informational)
+![Node](https://img.shields.io/badge/Node-20.x-informational)
+![License](https://img.shields.io/badge/License-MIT-lightgrey)
+
+---
+
+## Live Demo
+
+- Live: https://ask-flask.onrender.com/
 
 ---
 
 ## Table of contents
 
-* [Architecture](#architecture)
-* [Key features](#key-features)
-* [Tech stack](#tech-stack)
-* [Local quickstart](#local-quickstart)
-* [Environment variables](#environment-variables)
-* [Database & migrations](#database--migrations)
-* [API reference](#api-reference)
-* [Security](#security)
-* [Observability](#observability)
-* [Rate limiting](#rate-limiting)
-* [Session memory](#session-memory)
-* [RAG module](#rag-module) <!-- CHANGED: new section -->
-* [Testing](#testing)
-* [CI/CD](#cicd)
-* [Render deployment](#render-deployment)
-* [Troubleshooting](#troubleshooting)
-* [Roadmap snapshot](#roadmap-snapshot)
-* [License](#license)
+- [Architecture](#architecture)
+- [Key features](#key-features)
+- [Tech stack](#tech-stack)
+- [Local quickstart](#local-quickstart)
+- [Environment variables](#environment-variables)
+- [Database & migrations](#database--migrations)
+- [API reference](#api-reference)
+- [Security](#security)
+- [Observability](#observability)
+- [Rate limiting](#rate-limiting)
+- [Session memory](#session-memory)
+- [RAG module](#rag-module)
+- [Testing](#testing)
+- [CI/CD](#cicd)
+- [Render deployment](#render-deployment)
+- [Troubleshooting](#troubleshooting)
+- [Roadmap snapshot](#roadmap-snapshot)
+- [License](#license)
 
 ---
 
@@ -50,15 +53,15 @@ flowchart LR
   end
 
   subgraph Server [Flask API]
-    Routes[/app.py\n/health\n/api/chat\n/api/chat/stream\n/api/sessions*\n/api/rag/*/]  <!-- CHANGED: add /api/rag -->
+    Routes[/server/app.py\n/health\n/api/chat\n/api/chat/stream\n/api/sessions*\n/api/rag/*/]
     Obs[(observability.py\nJSON logs, request_id, errors)]
-    Sec[(security.py\nCSP, HSTS, nosniff, frame-ancestors)]  <!-- CHANGED: custom module -->
-    Limit[(ratelimit.py\nFlask-Limiter v3 shared budget)]
+    Sec[(security.py\nCSP, HSTS, XFO,\nReferrer-Policy, Permissions-Policy)]
+    Limit[(ratelimit.py\nFlask-Limiter v3\nshared budgets)]
     Svc[services/openai_client.py\nretries + breaker]
-    Store[services/session_store.py]
+    Store[services/session_store.py\nsessions/messages + memory]
     Schemas[(schemas.py\nPydantic v2 DTOs)]
-    PII[(security_utils/pii_redaction.py)]  <!-- CHANGED: PII lives outside security.py -->
-    RAG[services/rag/*\nchunker, embeddings, FAISS, retriever, evals, agent] <!-- CHANGED -->
+    PII[(security_utils/pii_redaction.py)]
+    RAG[rag/* + agents/*\nchunker, embeddings,\nFAISS, retriever, evals, agent]
   end
 
   subgraph DB_And_Files [SQLite (dev) / Postgres (prod) + instance files]
@@ -81,21 +84,21 @@ flowchart LR
   RAG <---> DB_And_Files
 ````
 
-**Principles:** small, composable layers; typed DTOs; unified error bodies; **SSE** for realtime UX; **rate limits** and **security headers** on by default; observability everywhere.
+**Principles:** small composable layers; typed DTOs; unified JSON error envelopes; SSE for realtime UX; security headers and rate limits on by default; observability everywhere.
 
 ---
 
 ## Key features
 
-* **Streaming chat (SSE)** with graceful fallback to non-stream.
-* **GFM Markdown** + PrismJS (**prism-tomorrow**) + Copy buttons with “Copied!”.
-* **Sessions** (server-backed): list/create/delete/**rename**, **export** as JSON/Markdown.
-* **Short-term context**: backend includes the most recent *N* exchanges (`CHAT_CONTEXT_MAX_TURNS`).
-* **Pinned session memory**: compact summary stored on `Session.memory`; included in the system prompt and updated after each reply.
-* **Mini-RAG**: ingest → chunk → **PII redact** → embed → **FAISS** index; **MMR** retrieve with citations; **tiny evals** (Recall@k, p95 latency) and a simple agent. <!-- CHANGED -->
-* **Security by default**: CSP, HSTS, referrer-policy, frame-ancestors none, nosniff (via **custom `security.py`**). <!-- CHANGED -->
-* **Reliability**: request IDs, structured logs, retries with jitter, minimal circuit breaker shim.
-* **Cost & abuse controls**: 4000-char cap per message; **shared rate limit** across chat endpoints.
+* **Streaming chat (SSE)** with graceful fallback to non-streaming.
+* **GFM Markdown** + PrismJS (prism-tomorrow) + copy buttons (“Copied!” UX).
+* **Sessions (server-backed):** list, create, delete, rename, export as JSON or Markdown.
+* **Short-term context:** backend includes the most recent N exchanges (`CHAT_CONTEXT_MAX_TURNS`).
+* **Pinned session memory:** compact summary stored on `Session.memory`, injected as a second system message, updated after each successful reply.
+* **Mini-RAG:** ingest → chunk → PII redact → embed → FAISS index; optional MMR retrieval; citation-ready hits; tiny evals (Recall@k, p95 latency) and a simple agent.
+* **Security by default:** CSP, HSTS, XFO, nosniff, referrer-policy, permissions-policy.
+* **Reliability:** request IDs, structured logs, retries with jitter, and a minimal circuit breaker.
+* **Abuse controls:** 4000-char cap per message; shared rate limit across chat endpoints.
 
 ---
 
@@ -103,54 +106,67 @@ flowchart LR
 
 **Frontend**
 
-* React (Vite, ESM), `react-markdown` + `remark-gfm`, PrismJS.
-* Plain CSS (no Tailwind). Vitest + jsdom tests.
+* React (Vite, ESM, JavaScript)
+* `react-markdown` + `remark-gfm`
+* PrismJS (Tomorrow theme)
+* Plain CSS (no Tailwind)
+* Vitest + jsdom tests
 
 **Backend**
 
-* Python **3.11.9**, Flask, OpenAI Python SDK (wrapped by `OpenAIService`).
-* **Flask-Limiter v3** (shared budgets), SQLAlchemy + Alembic, **Pydantic v2** DTOs.
-* Structured JSON logs & request IDs, SSE streaming.
-* **Custom `security.py`** for headers (Talisman **not used**). <!-- CHANGED -->
+* Python 3.11.9, Flask
+* OpenAI Python SDK 1.x wrapped by `OpenAIService` (timeouts, retries, mini breaker)
+* SQLAlchemy + Alembic (Flask-Migrate)
+* Pydantic v2 DTOs
+* Flask-Limiter v3 (shared budgets)
+* Structured JSON logs + request IDs
+* SSE streaming via `stream_with_context`
 
 **Databases**
 
 * Dev: SQLite (`server/instance/app.db`)
 * Prod: Postgres (Render)
 
-**RAG Add-on**
+**RAG add-on**
 
-* `faiss-cpu`, `numpy`, OpenAI embeddings (default) with optional `sentence-transformers` fallback.
+* `faiss-cpu`, `numpy`
+* Embeddings:
+
+  * OpenAI embeddings when `OPENAI_API_KEY` is set (default: `text-embedding-3-small`)
+  * `sentence-transformers` fallback (`all-MiniLM-L6-v2`) when no key is present
 
 ---
 
 ## Local quickstart
 
+> Assumes Python 3.11.9 and Node 20.x.
+
 ```bash
-# 1) Python toolchain
-pyenv install 3.11.9 -s
-pyenv local 3.11.9
+# 1) Python environment
 python -m venv .venv
 source .venv/bin/activate
-
-# 2) Install deps
 pip install -r requirements.txt -r requirements-dev.txt
+
+# 2) Frontend deps
 npm ci --prefix client
 
-# 3) Set local env (creates SQLite in server/instance/app.db)
+# 3) Local env (SQLite DB lives in server/instance/app.db)
 cat > .env <<'EOF'
 DATABASE_URI="sqlite:///$PWD/server/instance/app.db"
-OPENAI_API_KEY=dummy
-FLASK_SECRET_KEY=dev
-FRONTEND_ORIGIN=http://localhost:5173
+OPENAI_API_KEY="sk-REPLACE_ME"
+FLASK_SECRET_KEY="dev"
+FRONTEND_ORIGIN="http://localhost:5173"
+
 CHAT_CONTEXT_MAX_TURNS=12
 CHAT_MEMORY_ENABLED=true
 CHAT_MEMORY_MAX_CHARS=2000
 # CHAT_MEMORY_MODEL=gpt-3.5-turbo
 EOF
+
+# load env into current shell
 set -a; . ./.env; set +a
 
-# 4) Initialize/upgrade DB
+# 4) Migrate DB
 flask --app server.app:app db upgrade -d server/migrations
 
 # 5) Run backend (port 5555)
@@ -160,24 +176,24 @@ flask --app server.app:app run -p 5555 --debug
 npm run dev --prefix client
 ```
 
-Open [http://localhost:5173](http://localhost:5173)
+Open: [http://localhost:5173](http://localhost:5173)
 
 ---
 
 ## Environment variables
 
-| Name                     | Purpose                           | Example                                                 |
-| ------------------------ | --------------------------------- | ------------------------------------------------------- |
-| `OPENAI_API_KEY`         | OpenAI access key (prod required) | `sk-...`                                                |
-| `FLASK_SECRET_KEY`       | Flask session/signing key         | long random                                             |
-| `DATABASE_URI`           | SQLAlchemy URL                    | `sqlite:///$PWD/server/instance/app.db` or Postgres URL |
-| `FRONTEND_ORIGIN`        | Dev CORS allowlist                | `http://localhost:5173`                                 |
-| `CHAT_CONTEXT_MAX_TURNS` | Prior exchanges to include        | `12`                                                    |
-| `CHAT_MEMORY_ENABLED`    | Toggle pinned memory              | `true`                                                  |
-| `CHAT_MEMORY_MAX_CHARS`  | Cap pinned memory length          | `2000`                                                  |
-| `CHAT_MEMORY_MODEL`      | Model for memory summarization    | `gpt-3.5-turbo`                                         |
+| Name                     | Purpose                              | Example                                                 |
+| ------------------------ | ------------------------------------ | ------------------------------------------------------- |
+| `OPENAI_API_KEY`         | OpenAI access key (chat requires it) | `sk-...`                                                |
+| `FLASK_SECRET_KEY`       | Flask secret/session signing key     | long random string                                      |
+| `DATABASE_URI`           | SQLAlchemy DB URL                    | `sqlite:///$PWD/server/instance/app.db` or Postgres URL |
+| `FRONTEND_ORIGIN`        | Dev CORS allowlist                   | `http://localhost:5173`                                 |
+| `CHAT_CONTEXT_MAX_TURNS` | Prior exchanges to include from DB   | `12` (set `0` to disable prior turns)                   |
+| `CHAT_MEMORY_ENABLED`    | Toggle pinned memory                 | `true`                                                  |
+| `CHAT_MEMORY_MAX_CHARS`  | Cap pinned memory length             | `2000`                                                  |
+| `CHAT_MEMORY_MODEL`      | Model used for memory summarization  | `gpt-3.5-turbo`                                         |
 
-> **Tip:** Prefer absolute SQLite paths locally, e.g. `sqlite:///$PWD/server/instance/app.db`.
+Tip: Prefer absolute SQLite paths locally (as shown) so migrations and app runs always target the same DB.
 
 ---
 
@@ -185,9 +201,10 @@ Open [http://localhost:5173](http://localhost:5173)
 
 ```bash
 set -a; . ./.env; set +a
+
 flask --app server.app:app db upgrade -d server/migrations
 flask --app server.app:app db current -d server/migrations
-echo "$DATABASE_URI"   # verify target DB
+echo "$DATABASE_URI"
 ```
 
 ---
@@ -196,22 +213,27 @@ echo "$DATABASE_URI"   # verify target DB
 
 ### Health
 
-```
-GET /health → 200 { "status": "ok" }
+```text
+GET /health → 200
 ```
 
 ### Chat (non-stream)
 
-```
+```text
 POST /api/chat
-Body: { "message": string<=4000, "model": "gpt-3.5-turbo"|"gpt-4", "session_id"?: string }
+Body: { "message": string<=4000, "model"?: string, "session_id"?: string }
 200:  { "reply": "..." }
-Errors: 400 validation, 413 too large, 429 rate limit, 503 circuit open, 5xx unified JSON
+Errors:
+- 400 validation (Pydantic)
+- 413 too large (message > 4000 chars)
+- 429 rate limited (JSON error)
+- 503 circuit open (JSON error)
+- 5xx unified JSON error envelope
 ```
 
 ### Chat (SSE stream)
 
-```
+```text
 POST /api/chat/stream    Content-Type: application/json
 Response: text/event-stream
 
@@ -226,25 +248,25 @@ data: {"error":"...", "code":503|500, "request_id":"...", "done":true}
 
 ### Sessions
 
-```
+```text
 GET    /api/sessions
-POST   /api/sessions                  Body: { "title"?: string<=200 }
+POST   /api/sessions                  Body: { "title"?: string }
 GET    /api/sessions/:id
-PATCH  /api/sessions/:id              Body: { "title": string<=200 }  # non-empty, trimmed
+PATCH  /api/sessions/:id              Body: { "title": string }  # trimmed + clamped in DTO
 DELETE /api/sessions/:id
 GET    /api/sessions/:id/export?format=json|md  # attachment
 ```
 
-### RAG module <!-- CHANGED: new section -->
+### RAG module
 
-```
+```text
 POST /api/rag/ingest
 Body: { "docs":[{id, department, text}, ...], "overwrite": false }
 200:  { ok, ingested, emb_model }
 
 POST /api/rag/query
-Body: { "query":"...", "k":4, "department":"Security", "mmr_lambda":0.6 }
-200:  { ok, hits:[{score, doc_id, chunk_id, department, text}, ...] }
+Body: { "question"|"query":"...", "top_k"|"k":4, "department"?:string, "mmr_lambda"?:number }
+200:  { ok, query, hits:[{score, doc_id, chunk_id, department, text}, ...] }
 
 POST /api/rag/eval
 Body: { "queries":[{"q":"...","expected_doc_id":"..."}], "k":4 }
@@ -259,32 +281,37 @@ Body: { "goal":"...", "k":4 }
 
 ## Security
 
-* **Custom `security.py`** attaches headers at `after_request`:
+* Custom `security.py` attaches headers on every response:
 
-  * **CSP** (`default-src 'self'`, blocks third-party script by default)
-  * **HSTS**, **X-Content-Type-Options: nosniff**, **Referrer-Policy: no-referrer**
-  * **X-Frame-Options: DENY**, basic **Permissions-Policy**
-* Keep secrets out of Git; use `.env` locally and dashboard vars in Render.
+  * CSP (default-src 'self', blocks third-party scripts by default)
+  * HSTS
+  * X-Content-Type-Options: nosniff
+  * Referrer-Policy: no-referrer
+  * X-Frame-Options: DENY
+  * Permissions-Policy restricting camera, microphone, geolocation
+* Keep secrets out of Git; use `.env` locally and dashboard environment variables in Render.
 
 ---
 
 ## Observability
 
-* Structured JSON logs with: `level, ts, request_id, path, latency_ms, model, error`.
-* `X-Request-ID` echoed on all `/api/*`.
-* Breadcrumbs for OpenAI calls and SSE start/complete.
-* Pydantic v2 validation errors are **JSON-safe**.
+* Structured JSON logs include:
+
+  * request_id, route/path, latency, status codes, and service breadcrumbs
+* `X-Request-ID` echoed on `/api/*` responses
+* JSON-safe serialization of Pydantic v2 validation errors
+* SSE emits a kickoff frame with `request_id` for traceability
 
 ---
 
 ## Rate limiting
 
-* **Shared budget** across `/api/chat` and `/api/chat/stream` via Flask-Limiter v3.
-* Success responses include:
+* Shared budgets across `/api/chat` and `/api/chat/stream` via Flask-Limiter v3
+* Successful responses include:
 
   * `X-RateLimit-Limit`
   * `X-RateLimit-Remaining`
-* 429 body uses the unified error shape.
+* 429 responses use a consistent JSON error shape
 
 ---
 
@@ -294,43 +321,36 @@ Body: { "goal":"...", "k":4 }
 
 **How it’s used:**
 
-* Included as a **pinned system message**:
-  `Session memory (pinned): <summary>`
-* Maintained after each successful reply (JSON & SSE) via a tiny LLM pass that merges old memory + the last turn, then trims to `CHAT_MEMORY_MAX_CHARS`.
-
-**Config:**
-
-* `CHAT_MEMORY_ENABLED=true`
-* `CHAT_MEMORY_MAX_CHARS=2000`
-* `CHAT_MEMORY_MODEL=gpt-3.5-turbo`
-
-> Failures in memory update are logged but never break the request.
+* Injected into the prompt as a second system message: `Session memory (pinned): <summary>`
+* Updated after each successful reply (non-stream and SSE) via a small "merge + dedupe + trim" summarization pass
+* Always respects `CHAT_MEMORY_MAX_CHARS`
+* Soft-fail: errors updating memory are logged, but the main chat response still succeeds
 
 ---
 
 ## RAG module
 
-**Pipeline:** ingest → chunk (overlap) → **PII redact** → embed → **FAISS** index.
-**Query:** top-k with optional **MMR** rerank & department filter.
-**Citations:** each hit returns `{score, doc_id, chunk_id, department, text[:~220]}`.
-**Evals:** simple harness (Recall@k, p95 latency).
-**Agent:** minimal planner → tool executor → validator (default tool: `rag.search`).
+**Pipeline:** ingest → chunk (overlap) → PII redact → embed → FAISS index
+**Query:** top-k with optional MMR rerank plus optional department filter
+**Citations:** each hit returns `{score, doc_id, chunk_id, department, text[:~220]}`
+**Evals:** tiny harness (Recall@k, p95 latency)
+**Agent:** minimal planner → tool executor → validator (default tool: `rag.search`)
 
-**Quick demo:**
+### Quick demo (with `server/sample_kb.json`)
 
 ```bash
-# Seed
-curl -X POST http://localhost:5555/api/rag/ingest \
+# Ingest (overwrite existing index)
+curl -s http://localhost:5555/api/rag/ingest \
   -H "Content-Type: application/json" \
-  --data @server/sample_kb.json
+  -d "{\"docs\": $(cat server/sample_kb.json), \"overwrite\": true}"
 
-# Query with citations
-curl -X POST http://localhost:5555/api/rag/query \
+# Query with citation-ready hits
+curl -s http://localhost:5555/api/rag/query \
   -H "Content-Type: application/json" \
   -d '{"query":"What counts as PII and how should we handle it?","k":4,"mmr_lambda":0.6}'
 
 # Tiny eval
-curl -X POST http://localhost:5555/api/rag/eval \
+curl -s http://localhost:5555/api/rag/eval \
   -H "Content-Type: application/json" \
   -d '{"queries":[
         {"q":"What counts as PII?","expected_doc_id":"Security-PII-Guide"},
@@ -339,7 +359,7 @@ curl -X POST http://localhost:5555/api/rag/eval \
       ],"k":4}'
 
 # Micro-agent
-curl -X POST http://localhost:5555/api/rag/agent \
+curl -s http://localhost:5555/api/rag/agent \
   -H "Content-Type: application/json" \
   -d '{"goal":"Show me RAG best practices","k":4}'
 ```
@@ -351,51 +371,70 @@ curl -X POST http://localhost:5555/api/rag/agent \
 **Backend (pytest)**
 
 ```bash
+pytest -q
 pytest -q server/tests/test_sessions_api.py
 pytest -q server/tests/test_chat_api.py
-pytest -q server/tests/test_chat_persistence.py  # includes no-persist-on-error (when added)
+pytest -q server/tests/test_chat_persistence.py
 ```
 
 **Frontend (Vitest)**
 
 ```bash
-npm test --prefix client
+npm run test:ci --prefix client
 ```
 
 ---
 
 ## CI/CD
 
-* GitHub Actions: Python lint/type/tests + Node lint/build/tests.
-* Optionally deploy `main` to Render.
+GitHub Actions workflow: `.github/workflows/ci.yml`
+
+**Backend job**
+
+* ruff lint: `ruff check .`
+* formatting: `black --check .`
+* import order: `isort --check-only .`
+* types: `mypy server/services server/schemas`
+* tests: `pytest` (sets `OPENAI_API_KEY="test"` in CI)
+
+**Frontend job**
+
+* install: `npm ci --prefix client`
+* lint: `npm run lint --prefix client`
+* build: `npm run build --prefix client`
+* tests: `npm run test:ci --prefix client`
+
+Coverage is uploaded as build artifacts (backend `.coverage*`, frontend `client/coverage`).
 
 ---
 
 ## Render deployment
 
-**Python version:** `runtime.txt` → `python-3.11.9`.
+**Python version:** `runtime.txt` pins `python-3.11.9`.
 
-**Build**
+**Build command**
 
 ```bash
 pip install -r requirements.txt \
- && npm ci --prefix client \
- && npm run build --prefix client
+  && npm ci --prefix client \
+  && npm run build --prefix client
 ```
 
-**Start**
+**Start command**
 
 ```bash
 gunicorn server.app:app
-# Alt: gunicorn --chdir server app:app
+# Alternative:
+# gunicorn --chdir server app:app
 ```
 
-**Env (Render)**
+**Environment (Render)**
 
-```
+```text
 OPENAI_API_KEY=<secret>
 FLASK_SECRET_KEY=<long random>
 DATABASE_URI=postgresql://<USER>:<PASS>@<HOST>:5432/<DB>?sslmode=require
+
 # Optional:
 CHAT_CONTEXT_MAX_TURNS=12
 CHAT_MEMORY_ENABLED=true
@@ -403,21 +442,31 @@ CHAT_MEMORY_MAX_CHARS=2000
 # CHAT_MEMORY_MODEL=gpt-3.5-turbo
 ```
 
-**Health check:** `/health`
+Health check: `/health`
 
 ---
 
 ## Troubleshooting
 
-* **Wrong DB migrated?**
-  Check: `echo "$DATABASE_URI"`. Prefer absolute SQLite locally:
-  `export DATABASE_URI="sqlite:///$PWD/server/instance/app.db"`
+* Wrong DB migrated?
 
-* **Module import issues in tests**
-  Run pytest from repo root.
+  * Verify: `echo "$DATABASE_URI"`
+  * Prefer absolute SQLite locally:
 
-* **SSE behind proxies**
-  Ensure: `Cache-Control: no-cache`, `X-Accel-Buffering: no`, `Connection: keep-alive`.
+    * `export DATABASE_URI="sqlite:///$PWD/server/instance/app.db"`
+
+* SSE behind proxies
+
+  * Ensure buffering is disabled and keep-alives are allowed (example: `X-Accel-Buffering: no`).
+
+* Import/path weirdness (tests vs gunicorn)
+
+  * Run pytest from repo root and use the documented gunicorn commands.
+
+* Silent `Killed` on WSL (OOM)
+
+  * Check: `dmesg -T | tail`
+  * Reduce background Node/Pylance processes and avoid large local embedding models.
 
 ---
 
@@ -425,26 +474,18 @@ CHAT_MEMORY_MAX_CHARS=2000
 
 * ✅ Sessions CRUD + export + PATCH rename
 * ✅ SSE streaming + fallback
-* ✅ Markdown + Prism + Copy
-* ✅ Rate limiting + security headers + JSON logs
-* ✅ Context window & **pinned memory**
-* ✅ **RAG** ingest/query/eval/agent
-* ⚠️ Tests: add explicit 429 path and “no-persist on error” checks
-* ⏳ README GIFs (streaming, 429), analytics, theme toggle, token usage pill
+* ✅ Markdown + Prism + copy buttons
+* ✅ Rate limiting + security headers + structured logs
+* ✅ Context window + pinned memory
+* ✅ RAG ingest/query/eval/agent
+* ⏳ Frontend RAG panel (query + hit display + citations)
+* ⏳ `/api/chat-with-rag` (retrieve → inject citations → answer)
+* ⏳ Add explicit tests for 429 paths and "no persist on error" behaviors
+* ⏳ Enhance observability: token usage and RAG metrics in logs
+* ⏳ README media: streaming GIF and architecture image
 
 ---
 
-## License
 
-MIT (replace if different).
-
----
-
-### Screenshots / GIFs (placeholders)
-
-* `docs/streaming.gif` – SSE streaming in action
-* `docs/rate-limit.gif` – rate-limit UX
-* `docs/architecture.png` – diagram export
-
-
-
+```
+```
