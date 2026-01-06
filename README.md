@@ -53,14 +53,16 @@ flowchart LR
 
   subgraph Server["Flask API"]
     Routes["Routes (server/app.py)<br/>/health<br/>/api/chat<br/>/api/chat/stream<br/>/api/sessions*<br/>/api/rag/*"]
-    Sec["security.py<br/>CSP + HSTS + XFO<br/>Referrer-Policy + Permissions-Policy"]
-    Limit["ratelimit.py<br/>Flask-Limiter v3<br/>shared budgets"]
-    Obs["observability.py<br/>structured logs + request_id<br/>JSON error envelopes"]
-    Schemas["schemas.py<br/>Pydantic v2 DTOs"]
-    OpenAI["services/openai_client.py<br/>timeouts + retries<br/>mini circuit breaker"]
+
     Store["services/session_store.py<br/>sessions + messages<br/>pinned memory"]
     RAG["rag/* + agents/*<br/>chunker + embeddings<br/>FAISS + retrieval<br/>evals"]
     PII["security_utils/pii_redaction.py<br/>redact at ingest"]
+
+    OpenAI["services/openai_client.py<br/>timeouts + retries<br/>mini circuit breaker"]
+    Schemas["schemas.py<br/>Pydantic v2 DTOs"]
+    Obs["observability.py<br/>structured logs + request_id<br/>JSON error envelopes"]
+    Limit["ratelimit.py<br/>Flask-Limiter v3<br/>shared budgets"]
+    Sec["security.py<br/>CSP + HSTS + XFO<br/>Referrer-Policy + Permissions-Policy"]
   end
 
   subgraph Persistence["Persistence"]
@@ -69,24 +71,23 @@ flowchart LR
     Messages[(messages)]
   end
 
-  subgraph RagFiles["RAG index files (server/instance)"]
-  
-    IDX[(rag_index.faiss)]
-    META[(rag_meta.json)]
+  subgraph RagFiles["RAG index files<br/>server/instance"]
+    IDX["rag_index.faiss"]
+    META["rag_meta.json"]
   end
 
   UI -- "SSE / fetch" --> Routes
   Sidebar --> Routes
 
-  RAG --> PII
-  Routes --> OpenAI
   Routes --> Store
   Routes --> RAG
-  Routes --> Sec
-  Routes --> Limit
-  Routes --> Obs
   Routes --> Schemas
+  Routes --> OpenAI
+  Routes --> Obs
+  Routes --> Limit
+  Routes --> Sec
 
+  RAG --> PII
 
   Store <--> DB
   DB --> Sessions
