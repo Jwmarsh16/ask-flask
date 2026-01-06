@@ -1,4 +1,4 @@
-````markdown
+
 <!-- README.md -->
 
 # Ask-Flask
@@ -82,7 +82,7 @@ flowchart LR
   RAG --> PII
   Store <---> DB_And_Files
   RAG <---> DB_And_Files
-````
+
 
 **Principles:** small composable layers; typed DTOs; unified JSON error envelopes; SSE for realtime UX; security headers and rate limits on by default; observability everywhere.
 
