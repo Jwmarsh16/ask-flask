@@ -48,42 +48,52 @@ flowchart LR
   subgraph Client["Client (React + Vite)"]
     UI["Chat UI<br/>react-markdown + Prism<br/>Copy buttons"]
     Sidebar["Session Sidebar<br/>list/create/delete/rename/export"]
-    UI -- "SSE / fetch" --> API
   end
 
   subgraph Server["Flask API"]
-    API["Routes (server/app.py)<br/>/health<br/>/api/chat<br/>/api/chat/stream<br/>/api/sessions*<br/>/api/rag/*"]
+    Routes["Routes (server/app.py)<br/>/health<br/>/api/chat<br/>/api/chat/stream<br/>/api/sessions*<br/>/api/rag/*"]
     Obs["observability.py<br/>JSON logs, request_id, errors"]
     Sec["security.py<br/>CSP, HSTS, XFO<br/>Referrer-Policy, Permissions-Policy"]
     Limit["ratelimit.py<br/>Flask-Limiter v3<br/>shared budgets"]
     Svc["services/openai_client.py<br/>retries + breaker"]
     Store["services/session_store.py<br/>sessions/messages + memory"]
     Schemas["schemas.py<br/>Pydantic v2 DTOs"]
-    PII["security_utils/pii_redaction.py"]
     RAG["rag/* + agents/*<br/>chunker, embeddings<br/>FAISS, retriever, evals, agent"]
+    PII["security_utils/pii_redaction.py"]
   end
 
-  subgraph DB_And_Files["SQLite (dev) / Postgres (prod) + instance files"]
-    T1[(sessions)]
-    T2[(messages)]
+  subgraph Storage["Storage (SQLite dev / Postgres prod) + instance files"]
+    DB[(Database)]
+    Sessions[(sessions)]
+    Messages[(messages)]
+    Files[(RAG index files)]
     F1[(server/instance/rag_index.faiss)]
     F2[(server/instance/rag_meta.json)]
   end
 
-  UI <--> API
-  API --> Sec
-  API --> Limit
-  API --> Obs
-  API --> Schemas
-  API --> Svc
-  API --> Store
-  API --> RAG
+  %% Client -> Server
+  UI -- "SSE / fetch" --> Routes
+  Sidebar --> Routes
+
+  %% Server internals
+  Routes --> Sec
+  Routes --> Limit
+  Routes --> Obs
+  Routes --> Schemas
+  Routes --> Svc
+  Routes --> Store
+  Routes --> RAG
   RAG --> PII
 
-  Store <--> T1
-  Store <--> T2
-  RAG <--> F1
-  RAG <--> F2
+  %% Storage wiring (use hubs to avoid line spaghetti)
+  Store <--> DB
+  DB --> Sessions
+  DB --> Messages
+
+  RAG <--> Files
+  Files --> F1
+  Files --> F2
+
 ```
 
 
