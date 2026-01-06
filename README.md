@@ -1,12 +1,4 @@
 
-## README.md — ⚠️ a few consistency fixes
-
-* It still says **Flask-Talisman** provides headers, but your app uses a custom `security.py` (single-module) and **no Talisman**.
-* It doesn’t mention the **RAG module** (/api/rag endpoints, FAISS store, security_utils PII redaction).
-* I updated the README to reflect the current, correct architecture and routes, and added the RAG section + curl demos. I also kept your tone/structure.
-
-Below is the **complete, updated README** with minimal, necessary edits and inline comments marking key changes.
-
 ````markdown
 <!-- README.md -->
 # Ask-Flask
