@@ -6,7 +6,7 @@ import os
 import pathlib
 import sys
 
-import pytest 
+import pytest
 
 # CHANGED: signals "test mode" early enough to affect app import-time init
 os.environ.setdefault("ASKFLASK_TESTING", "1")
