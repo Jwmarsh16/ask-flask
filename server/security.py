@@ -1,6 +1,7 @@
 # server/security.py
 # Sets common security headers (CSP, HSTS, X-Content-Type-Options, Referrer-Policy, X-Frame-Options)
 
+
 def register_security_headers(app) -> None:
     """Attach common security headers on all responses."""
     if app.config.get("_SEC_HEADERS_INIT", False):
@@ -23,7 +24,9 @@ def register_security_headers(app) -> None:
         resp.headers.setdefault("Content-Security-Policy", csp)
 
         # HSTS (only relevant over HTTPS; harmless if http during local dev)
-        resp.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
+        resp.headers.setdefault(
+            "Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload"
+        )
 
         # MIME sniffing protection
         resp.headers.setdefault("X-Content-Type-Options", "nosniff")
@@ -35,7 +38,9 @@ def register_security_headers(app) -> None:
         resp.headers.setdefault("X-Frame-Options", "DENY")
 
         # Permissions Policy (tighten as needed)
-        resp.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        resp.headers.setdefault(
+            "Permissions-Policy", "camera=(), microphone=(), geolocation=()"
+        )
 
         return resp
 

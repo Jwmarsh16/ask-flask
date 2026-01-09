@@ -5,8 +5,8 @@ import json
 import os
 from typing import Dict, List, Tuple
 
-import numpy as np
 import faiss  # FAISS CPU
+import numpy as np
 
 INSTANCE_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "instance")
 os.makedirs(INSTANCE_DIR, exist_ok=True)  # ensure instance dir exists
@@ -38,7 +38,9 @@ class FaissStore:
                 with open(META_PATH, "r", encoding="utf-8") as f:
                     self.meta = json.load(f)
         else:
-            self.index = faiss.IndexFlatIP(dim)  # cosine via inner product (vecs are normalized)
+            self.index = faiss.IndexFlatIP(
+                dim
+            )  # cosine via inner product (vecs are normalized)
             self.meta = []
 
     def add(self, vecs: np.ndarray, metas: List[Dict]):
@@ -53,8 +55,8 @@ class FaissStore:
         """Return top `pool` candidates (scores, indices) for a single query vector."""
         if self.index is None:
             raise RuntimeError("Index not initialized")  # defensive guard       # NEW
-        D, I = self.index.search(qv, min(pool, self.index.ntotal))
-        return D, I
+        distances, idxs = self.index.search(qv, min(pool, self.index.ntotal))
+        return distances, idxs
 
     def save(self):
         if self.index is None:

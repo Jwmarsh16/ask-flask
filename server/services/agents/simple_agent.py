@@ -2,7 +2,8 @@
 # Path: server/services/agents/simple_agent.py
 # Minimal planner → executor → validator. Tools are plain callables.
 
-from typing import Dict, Callable, Any, List
+from typing import Any, Callable, Dict, List
+
 
 class ToolRegistry:
     def __init__(self):
@@ -16,14 +17,17 @@ class ToolRegistry:
             raise KeyError(f"Unknown tool: {name}")
         return self._tools[name](**kwargs)
 
+
 def plan(user_goal: str) -> List[Dict]:
     """Super simple planner: for factual questions, hit 'rag.search'."""
     return [{"tool": "rag.search", "args": {"query": user_goal}}]
+
 
 def validate(response: Dict) -> Dict:
     """Placeholder validator: ensure we have at least one citation hit."""
     response["valid"] = bool(response.get("hits"))
     return response
+
 
 def run_agent(user_goal: str, tools: ToolRegistry) -> Dict:
     steps = plan(user_goal)

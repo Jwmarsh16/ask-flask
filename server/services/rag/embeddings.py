@@ -6,17 +6,17 @@
 # This avoids loading heavy local models (like sentence-transformers) so it
 # won't blow up RAM inside WSL on an 8 GB laptop.
 
-import os
 import hashlib
-from typing import List, Iterable, Any
+import os
+from typing import Any, Iterable, List
 
 import numpy as np
 from dotenv import load_dotenv  # NEW: ensure .env is loaded even in ad-hoc scripts
 
 # ----- Load .env from common locations (root + server) ---------------------
-_here = os.path.abspath(os.path.dirname(__file__))              # .../server/services/rag
+_here = os.path.abspath(os.path.dirname(__file__))  # .../server/services/rag
 _server_dir = os.path.abspath(os.path.join(_here, "..", ".."))  # .../server
-_root_dir = os.path.abspath(os.path.join(_server_dir, ".."))    # .../
+_root_dir = os.path.abspath(os.path.join(_server_dir, ".."))  # .../
 
 # Try root and server .env files; don't override existing env vars
 for candidate in (
@@ -93,7 +93,9 @@ def _hash_to_vec(text: str, dim: int = _DUMMY_DIM) -> np.ndarray:
 
     # We want dim * 4 bytes (uint32) worth of data
     needed = dim * 4
-    buf = (h * ((needed // len(h)) + 1))[:needed]  # repeat digest until we have enough bytes
+    buf = (h * ((needed // len(h)) + 1))[
+        :needed
+    ]  # repeat digest until we have enough bytes
 
     ints = np.frombuffer(buf, dtype=np.uint32)
     vec = ints.astype(np.float32)

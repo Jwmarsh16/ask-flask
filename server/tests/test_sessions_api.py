@@ -1,7 +1,7 @@
 # server/tests/test_sessions_api.py
 import json
-import uuid
 import time
+import uuid
 
 import pytest
 
@@ -25,9 +25,14 @@ def client():
 # Helpers
 # ---------------------------
 
+
 def _create_session(client, title="PyTest Session"):
     """Create a session via API and return its JSON payload."""
-    resp = client.post("/api/sessions", data=json.dumps({"title": title}), content_type="application/json")
+    resp = client.post(
+        "/api/sessions",
+        data=json.dumps({"title": title}),
+        content_type="application/json",
+    )
     assert resp.status_code == 200, f"Create session failed: {resp.data}"
     _assert_common_headers(resp)  # <-- verify security/request-id headers
     body = resp.get_json()
@@ -45,7 +50,11 @@ def _append_message(client, session_id, role="user", content="hello"):
     assert resp.status_code == 201, f"Append message failed: {resp.data}"
     _assert_common_headers(resp)  # <-- verify security/request-id headers
     body = resp.get_json()
-    assert isinstance(body, dict) and body.get("role") == role and body.get("content") == content
+    assert (
+        isinstance(body, dict)
+        and body.get("role") == role
+        and body.get("content") == content
+    )
     return body
 
 
@@ -89,7 +98,9 @@ def _rename_session(client, session_id, title):  # <-- ADDED: helper for PATCH r
 
 def _assert_common_headers(resp):
     """Common headers enforced by security/observability layers."""
-    assert resp.headers.get("X-Request-ID"), "Missing X-Request-ID header"  # <-- request correlation
+    assert resp.headers.get(
+        "X-Request-ID"
+    ), "Missing X-Request-ID header"  # <-- request correlation
     # Security headers (subset, presence check)
     assert resp.headers.get("X-Frame-Options") == "DENY"
     assert resp.headers.get("X-Content-Type-Options") == "nosniff"
@@ -100,6 +111,7 @@ def _assert_common_headers(resp):
 # ---------------------------
 # Tests
 # ---------------------------
+
 
 def test_create_and_list_sessions(client):
     created = _create_session(client)
@@ -145,7 +157,10 @@ def test_export_json_and_markdown(client):
 
     # JSON export
     rjson = _export_session(client, sid, "json")
-    assert rjson.mimetype in ("application/json", "application/octet-stream")  # some servers set octet-stream for downloads
+    assert rjson.mimetype in (
+        "application/json",
+        "application/octet-stream",
+    )  # some servers set octet-stream for downloads
 
     # Markdown export
     rmd = _export_session(client, sid, "md")
@@ -166,7 +181,9 @@ def test_delete_cascades_messages(client):
     assert resp.status_code == 404
     _assert_common_headers(resp)  # <-- verify security/request-id headers
     body = resp.get_json()
-    assert isinstance(body, dict) and body.get("error"), "Unified error body expected on 404"
+    assert isinstance(body, dict) and body.get(
+        "error"
+    ), "Unified error body expected on 404"
     assert body.get("code") == 404
 
 
@@ -215,13 +232,18 @@ def test_400_invalid_append_payload(client):
 # NEW: PATCH rename tests
 # ---------------------------
 
+
 def test_patch_rename_happy_path(client):  # <-- ADDED
     s = _create_session(client, title="Old Title")
     sid = s["id"]
 
-    new_title = "  New Title  "  # leading/trailing spaces should be trimmed  # <-- ADDED
+    new_title = (
+        "  New Title  "  # leading/trailing spaces should be trimmed  # <-- ADDED
+    )
     body = _rename_session(client, sid, new_title)
-    assert body["title"] == "New Title"  # trimmed result                      # <-- ADDED
+    assert (
+        body["title"] == "New Title"
+    )  # trimmed result                      # <-- ADDED
 
     # Fetch to confirm persistence                                               # <-- ADDED
     fetched = _get_session(client, sid)

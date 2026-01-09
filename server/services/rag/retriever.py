@@ -3,7 +3,9 @@
 # Retrieve with optional metadata filter + MMR rerank. Returns citation-ready hits.
 
 from typing import Dict, List, Optional
+
 import numpy as np
+
 from .embeddings import embed_texts
 from .vector_store import FaissStore
 
@@ -71,8 +73,8 @@ def retrieve(
     qv = embed_texts([norm_q]).astype(np.float32)
 
     # Search a slightly larger pool, then downselect via MMR
-    D, I = store.search(qv, pool=25)
-    pool = [(float(D[0][i]), int(I[0][i])) for i in range(len(I[0]))]
+    distances, idxs = store.search(qv, pool=25)
+    pool = [(float(distances[0][i]), int(idxs[0][i])) for i in range(len(idxs[0]))]
 
     # Optional metadata filter (e.g., department)
     if dept_filter:

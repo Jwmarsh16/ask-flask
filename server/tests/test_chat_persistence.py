@@ -16,7 +16,6 @@
 #   and `stream(model, messages)` that the routes call.
 
 from importlib import import_module
-import types
 
 
 def _create_session(client):
@@ -76,7 +75,10 @@ def test_persists_user_and_assistant_non_stream(monkeypatch):
 
         # Sanity: server assembled a prompt with system + prior turns + current user
         assert isinstance(captured["messages"], list) and len(captured["messages"]) >= 2
-        assert captured["messages"][0]["role"] in ("system", "developer")  # system lead is expected
+        assert captured["messages"][0]["role"] in (
+            "system",
+            "developer",
+        )  # system lead is expected
 
 
 def test_persists_user_and_assistant_stream(monkeypatch):
@@ -89,6 +91,7 @@ def test_persists_user_and_assistant_stream(monkeypatch):
         def _gen():
             yield "Hi"
             yield "!"
+
         return _gen()
 
     monkeypatch.setattr(app_mod.openai_service, "stream", fake_stream)
@@ -138,7 +141,9 @@ def test_context_window_respects_turn_count(monkeypatch):
         session_id = _create_session(c)
 
         # Use a simple stub for these seeds.
-        monkeypatch.setattr(app_mod.openai_service, "complete", lambda model, messages: "seed-reply")
+        monkeypatch.setattr(
+            app_mod.openai_service, "complete", lambda model, messages: "seed-reply"
+        )
 
         for i in range(4):
             r = c.post(
@@ -202,7 +207,9 @@ def test_context_window_zero_includes_no_prior(monkeypatch):
         session_id = _create_session(c)
 
         # Seed 2 exchanges
-        monkeypatch.setattr(app_mod.openai_service, "complete", lambda model, messages: "seed")
+        monkeypatch.setattr(
+            app_mod.openai_service, "complete", lambda model, messages: "seed"
+        )
         for i in range(2):
             r = c.post(
                 "/api/chat",

@@ -1,15 +1,15 @@
 # server/observability.py
 # Cross-cutting concerns: JSON logging, request IDs, latency logging, error JSON for /api/*
 
+import logging
 import sys
 import time
-import logging
-from uuid import uuid4
 from typing import Any, Dict
+from uuid import uuid4
 
-from flask import g, request, jsonify
-from werkzeug.exceptions import HTTPException
+from flask import g, jsonify, request
 from pydantic import ValidationError  # <-- CHANGED: explicitly handle DTO errors
+from werkzeug.exceptions import HTTPException
 
 try:
     from pythonjsonlogger import jsonlogger
@@ -72,7 +72,9 @@ def register_latency_logging(app) -> None:
                 "path": request.path,
                 "status": resp.status_code,
                 "latency_ms": latency_ms,
-                "remote_ip": request.headers.get("X-Forwarded-For", request.remote_addr),
+                "remote_ip": request.headers.get(
+                    "X-Forwarded-For", request.remote_addr
+                ),
                 "user_agent": request.user_agent.string if request.user_agent else None,
                 "event": "http.access",
             }
@@ -88,7 +90,9 @@ def register_error_handlers(app) -> None:
     if app.config.get("_OBS_ERRORS_INIT", False):
         return
 
-    @app.errorhandler(ValidationError)  # <-- CHANGED: pydantic DTO errors to unified 400
+    @app.errorhandler(
+        ValidationError
+    )  # <-- CHANGED: pydantic DTO errors to unified 400
     def _validation_error(e: ValidationError):
         if not request.path.startswith("/api"):
             return e
@@ -122,7 +126,11 @@ def register_error_handlers(app) -> None:
             "code": 500,
             "request_id": getattr(g, "request_id", None),
         }
-        app.logger.error("http.exception", exc_info=True, extra={"event": "http.exception", **payload})
+        app.logger.error(
+            "http.exception",
+            exc_info=True,
+            extra={"event": "http.exception", **payload},
+        )
         return jsonify(payload), 500
 
     app.config["_OBS_ERRORS_INIT"] = True

@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging  # stdlib logging interface
 import random
 import time
-from typing import Any, Iterator, List, Dict, Optional
+from typing import Any, Dict, Iterator, List, Optional
 
 
 class OpenAIService:
@@ -26,7 +26,9 @@ class OpenAIService:
     def __init__(
         self,
         client: Any,  # OpenAI() instance injected by the app  # inline-change: explicit dependency injection
-        logger: Optional[logging.Logger] = None,               # inline-change: optional structured logger
+        logger: Optional[
+            logging.Logger
+        ] = None,  # inline-change: optional structured logger
         *,
         timeout: float = 30.0,
         max_retries: int = 2,
@@ -90,7 +92,9 @@ class OpenAIService:
                         extra.update(
                             {
                                 "prompt_tokens": getattr(usage, "prompt_tokens", None),
-                                "completion_tokens": getattr(usage, "completion_tokens", None),
+                                "completion_tokens": getattr(
+                                    usage, "completion_tokens", None
+                                ),
                                 "total_tokens": getattr(usage, "total_tokens", None),
                             }
                         )
@@ -101,12 +105,18 @@ class OpenAIService:
                 if self._logger:
                     self._logger.warning(
                         "openai chat error",
-                        extra={"event": "openai.chat.error", "attempt": attempt, "error": str(exc)},
+                        extra={
+                            "event": "openai.chat.error",
+                            "attempt": attempt,
+                            "error": str(exc),
+                        },
                     )
                 self._record_failure()
                 if attempt >= self._max_retries:
                     raise
-                backoff = min(1.0 * (2**attempt), 5.0) + random.uniform(0, 0.25)  # inline-change: jitter
+                backoff = min(1.0 * (2**attempt), 5.0) + random.uniform(
+                    0, 0.25
+                )  # inline-change: jitter
                 time.sleep(backoff)
                 attempt += 1
 
@@ -143,7 +153,11 @@ class OpenAIService:
                 if self._logger:
                     self._logger.warning(
                         "openai chat stream error",
-                        extra={"event": "openai.chat.stream.error", "attempt": attempt, "error": str(exc)},
+                        extra={
+                            "event": "openai.chat.stream.error",
+                            "attempt": attempt,
+                            "error": str(exc),
+                        },
                     )
                 self._record_failure()
                 if attempt >= self._max_retries:

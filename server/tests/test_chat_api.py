@@ -4,14 +4,13 @@
 # - After refactor, routes use OpenAIService; we patch `openai_service._client`
 #   or its public methods instead of `server.app.client`.  # inline-change
 
-import json
-from importlib import import_module
 import types
-import pytest  # <-- added: for assertions/marks where helpful  # inline-change
+from importlib import import_module
 
 
 def _mock_openai(success_text="Hello from mock"):
     """Build a minimal object that looks like the OpenAI client used by OpenAIService."""
+
     # --- Non-streaming response shape ---
     class _Msg:
         def __init__(self, content):
@@ -100,7 +99,7 @@ def test_chat_missing_body(monkeypatch):
         assert res.is_json
         body = res.get_json()
         assert body.get("error")
-        assert body.get("code") == 400          # <-- CHANGED: unified shape asserted
+        assert body.get("code") == 400  # <-- CHANGED: unified shape asserted
         assert body.get("request_id") is not None  # <-- CHANGED
 
 
@@ -115,10 +114,10 @@ def test_chat_empty_message(monkeypatch):
         assert res.is_json
         body = res.get_json()
         assert body.get("error")
-        assert body.get("code") == 400          # <-- CHANGED
+        assert body.get("code") == 400  # <-- CHANGED
         assert body.get("request_id") is not None
         # Optional details list for DTO errors (may exist)
-        assert "details" in body or True        # <-- CHANGED: tolerate absence in some paths
+        assert "details" in body or True  # <-- CHANGED: tolerate absence in some paths
 
 
 def test_chat_invalid_model(monkeypatch):
@@ -132,7 +131,7 @@ def test_chat_invalid_model(monkeypatch):
         assert res.is_json
         body = res.get_json()
         assert body.get("error")
-        assert body.get("code") == 400          # <-- CHANGED
+        assert body.get("code") == 400  # <-- CHANGED
         assert body.get("request_id") is not None
 
 
@@ -147,7 +146,7 @@ def test_chat_payload_too_large(monkeypatch):
         assert res.is_json
         body = res.get_json()
         assert body.get("error")
-        assert body.get("code") == 413          # <-- CHANGED
+        assert body.get("code") == 413  # <-- CHANGED
         assert body.get("request_id") is not None
 
 
@@ -158,7 +157,9 @@ def test_chat_openai_error(monkeypatch):
     def _raise_complete(*args, **kwargs):
         raise RuntimeError("simulated OpenAI failure")
 
-    monkeypatch.setattr(app_mod.openai_service, "complete", _raise_complete)  # inline-change
+    monkeypatch.setattr(
+        app_mod.openai_service, "complete", _raise_complete
+    )  # inline-change
 
     app = app_mod.app
     with app.test_client() as c:
@@ -168,7 +169,7 @@ def test_chat_openai_error(monkeypatch):
         assert res.is_json
         body = res.get_json()
         assert body.get("error")
-        assert body.get("code") >= 500          # <-- CHANGED
+        assert body.get("code") >= 500  # <-- CHANGED
         assert body.get("request_id") is not None
 
 
@@ -177,7 +178,9 @@ def test_chat_stream_sse_headers_and_tokens(monkeypatch):
     app_mod.openai_service._client = _mock_openai()  # inline-change
     app = app_mod.app
     with app.test_client() as c:
-        res = c.post("/api/chat/stream", json={"message": "stream me", "model": "gpt-4"})
+        res = c.post(
+            "/api/chat/stream", json={"message": "stream me", "model": "gpt-4"}
+        )
         assert res.status_code == 200  # <-- CHANGED: SSE happy path returns 200
         # Content-Type should be text/event-stream
         ctype = res.headers.get("Content-Type", "")
@@ -190,7 +193,9 @@ def test_chat_stream_sse_headers_and_tokens(monkeypatch):
         # Should include a done marker
         assert '"done": true' in payload
         # Should include kickoff frame with request_id per design  # inline-change
-        assert '"request_id"' in payload  # <-- CHANGED: verify kickoff correlation frame
+        assert (
+            '"request_id"' in payload
+        )  # <-- CHANGED: verify kickoff correlation frame
 
 
 def test_chat_stream_payload_too_large(monkeypatch):
@@ -205,7 +210,7 @@ def test_chat_stream_payload_too_large(monkeypatch):
         assert res.is_json
         body = res.get_json()
         assert body.get("error")
-        assert body.get("code") == 413          # <-- CHANGED
+        assert body.get("code") == 413  # <-- CHANGED
         assert body.get("request_id") is not None
 
 
@@ -239,7 +244,7 @@ def test_circuit_open_non_stream(monkeypatch):
         assert res.is_json
         body = res.get_json()
         assert body.get("error")
-        assert body.get("code") == 503          # <-- CHANGED
+        assert body.get("code") == 503  # <-- CHANGED
         assert body.get("request_id") is not None
 
 
@@ -257,10 +262,12 @@ def test_circuit_open_stream(monkeypatch):
         assert "text/event-stream" in res.headers.get("Content-Type", "")
         data = res.data.decode("utf-8")
         # Tolerate different phrasing; require unified SSE error fields  # inline-change
-        assert ("Service temporarily unavailable" in data) or ('"error"' in data)  # <-- CHANGED: less brittle
+        assert ("Service temporarily unavailable" in data) or (
+            '"error"' in data
+        )  # <-- CHANGED: less brittle
         assert '"done": true' in data
-        assert '"code": 503' in data                 # <-- CHANGED: unified SSE error fields
-        assert '"request_id":' in data               # <-- CHANGED
+        assert '"code": 503' in data  # <-- CHANGED: unified SSE error fields
+        assert '"request_id":' in data  # <-- CHANGED
 
 
 def test_rate_limit_headers_present(monkeypatch):
@@ -269,7 +276,9 @@ def test_rate_limit_headers_present(monkeypatch):
     app_mod.openai_service._client = _mock_openai("Hello")
     app = app_mod.app
     with app.test_client() as c:
-        res = c.post("/api/chat", json={"message": "check headers", "model": "gpt-3.5-turbo"})
+        res = c.post(
+            "/api/chat", json={"message": "check headers", "model": "gpt-3.5-turbo"}
+        )
         assert res.status_code == 200
         # May vary by limiter, but these should exist in our implementation
         assert res.headers.get("X-RateLimit-Limit") is not None

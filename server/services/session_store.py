@@ -6,17 +6,17 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Iterable, List, Tuple, Optional
+from typing import Iterable, List, Optional, Tuple
 
 # --- Mode-aware imports (supports both launch modes: top-level vs package) ---
 try:
     # Package mode: gunicorn server.app:app
     from ..config import db  # type: ignore
-    from ..models import Session, Message  # type: ignore
+    from ..models import Message, Session  # type: ignore
 except Exception:  # noqa: BLE001
     # Top-level mode: gunicorn --chdir server app:app
     from config import db  # type: ignore
-    from models import Session, Message  # type: ignore
+    from models import Message, Session  # type: ignore
 # -----------------------------------------------------------------------------
 
 # SQLAlchemy helpers from the Flask-SQLAlchemy facade
@@ -36,9 +36,9 @@ def _utc(dt: Optional[datetime]) -> Optional[datetime]:
 
 
 def create_session(title: Optional[str] = None) -> Session:
-    s = Session(title=title)               # create row
-    db.session.add(s)                      # stage
-    db.session.commit()                    # persist
+    s = Session(title=title)  # create row
+    db.session.add(s)  # stage
+    db.session.commit()  # persist
     return s
 
 
@@ -100,7 +100,9 @@ def get_session_messages(session_id: str) -> List[dict]:
     return out
 
 
-def append_message(session_id: str, role: str, content: str, tokens: Optional[int] = None) -> Message:
+def append_message(
+    session_id: str, role: str, content: str, tokens: Optional[int] = None
+) -> Message:
     s = db.session.get(Session, session_id)
     if not s:
         raise ValueError("session_not_found")
@@ -115,7 +117,9 @@ def append_message(session_id: str, role: str, content: str, tokens: Optional[in
     return m
 
 
-def rename_session(session_id: str, title: str) -> Session:  # <-- ADDED earlier: service to support PATCH /api/sessions/:id
+def rename_session(
+    session_id: str, title: str
+) -> Session:  # <-- ADDED earlier: service to support PATCH /api/sessions/:id
     """
     Rename a session. Expects a validated, non-empty title (DTO enforces this).
     Updates updated_at; last_activity is computed from messages and not stored.
@@ -152,14 +156,24 @@ def export_session(session_id: str, fmt: str) -> Tuple[str, bytes, str]:
     payload = {
         "id": s.id,
         "title": s.title,
-        "created_at": _utc(getattr(s, "created_at", None)).isoformat() if getattr(s, "created_at", None) else None,
-        "updated_at": _utc(getattr(s, "updated_at", None)).isoformat() if getattr(s, "updated_at", None) else None,
+        "created_at": (
+            _utc(getattr(s, "created_at", None)).isoformat()
+            if getattr(s, "created_at", None)
+            else None
+        ),
+        "updated_at": (
+            _utc(getattr(s, "updated_at", None)).isoformat()
+            if getattr(s, "updated_at", None)
+            else None
+        ),
         "messages": [
             {
                 "role": m["role"],
                 "content": m["content"],
                 "tokens": m["tokens"],
-                "created_at": (m["created_at"].isoformat() if m.get("created_at") else None),
+                "created_at": (
+                    m["created_at"].isoformat() if m.get("created_at") else None
+                ),
             }
             for m in msgs
         ],
@@ -167,6 +181,7 @@ def export_session(session_id: str, fmt: str) -> Tuple[str, bytes, str]:
 
     if fmt == "json":
         import json
+
         data = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
         return f"session_{s.id}.json", data, "application/json; charset=utf-8"
 
@@ -182,7 +197,9 @@ def export_session(session_id: str, fmt: str) -> Tuple[str, bytes, str]:
     for m in msgs:
         ts = m.get("created_at")
         ts_s = ts.isoformat() if ts else ""
-        lines.append(f"## {m['role'].capitalize()}  {('('+ts_s+')') if ts_s else ''}")
+        lines.append(
+            f"## {m['role'].capitalize()}  {('(' + ts_s + ')') if ts_s else ''}"
+        )
         lines.append("")
         lines.append(m["content"])
         lines.append("")
@@ -192,17 +209,24 @@ def export_session(session_id: str, fmt: str) -> Tuple[str, bytes, str]:
 
 # ------------------------- NEW: Memory helpers -------------------------------
 
-def get_memory(session_id: str) -> Optional[str]:  # <-- ADDED: fetch pinned memory for a session
+
+def get_memory(
+    session_id: str,
+) -> Optional[str]:  # <-- ADDED: fetch pinned memory for a session
     """
     Return the pinned session memory (compact summary) or None if not set.
     """
     s = db.session.get(Session, session_id)
     if not s:
-        raise ValueError("session_not_found")  # <-- ADDED: align error contract used elsewhere
+        raise ValueError(
+            "session_not_found"
+        )  # <-- ADDED: align error contract used elsewhere
     return s.memory  # type: ignore[attr-defined]  # <-- ADDED: column added in models/migration
 
 
-def update_memory(session_id: str, memory_text: Optional[str]) -> Session:  # <-- ADDED: set/clear pinned memory
+def update_memory(
+    session_id: str, memory_text: Optional[str]
+) -> Session:  # <-- ADDED: set/clear pinned memory
     """
     Update (or clear) the pinned session memory. Returns the updated Session.
     Callers should perform summarization/truncation before invoking this setter.
