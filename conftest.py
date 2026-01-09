@@ -6,6 +6,7 @@ import os
 import pathlib
 import sys
 
+# CHANGED: add pytest fixtures/hooks to init + reset DB schema in clean CI runners
 import pytest
 
 # CHANGED: signals "test mode" early enough to affect app import-time init
@@ -18,20 +19,24 @@ if str(ROOT) not in sys.path:
 # CHANGED: force tests to use an isolated SQLite file DB (prevents CI "no such table"
 # and avoids accidentally hitting a real DATABASE_URI like Postgres)
 _TEST_DB_PATH = ROOT / "server" / "instance" / "pytest_app.db"
-_TEST_DB_PATH.parent.mkdir(parents=True, exist_ok=True)  # CHANGED: ensure instance/ exists for CI
+# CHANGED: ensure instance/ exists for CI
+_TEST_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 try:
-    _TEST_DB_PATH.unlink()  # CHANGED: start from a clean DB each run (deterministic tests)
+    # CHANGED: start from a clean DB each run (deterministic tests)
+    _TEST_DB_PATH.unlink()
 except FileNotFoundError:
     pass
 
-os.environ["DATABASE_URI"] = f"sqlite:///{_TEST_DB_PATH}"  # CHANGED: override any external DB config during tests
+# CHANGED: override any external DB config during tests
+os.environ["DATABASE_URI"] = f"sqlite:///{_TEST_DB_PATH}"
 
 _DB_READY = False  # CHANGED: one-time schema init guard
 
 
 def _ensure_schema() -> None:
     """Ensure the DB schema exists for the test DB (fresh CI runners have no tables)."""
-    global _DB_READY  # CHANGED: use module-level guard to avoid repeated create_all
+    # CHANGED: use module-level guard to avoid repeated create_all
+    global _DB_READY
     if _DB_READY:
         return
 
@@ -47,7 +52,7 @@ def _ensure_schema() -> None:
     _DB_READY = True  # CHANGED: mark schema ready for the rest of the run
 
 
-def pytest_sessionstart(session):
+def pytest_sessionstart(session) -> None:
     _ensure_schema()  # CHANGED: ensure tables exist before any tests execute (CI-safe)
 
 
@@ -62,8 +67,11 @@ def _clean_db_between_tests():
     from server.models import Message, Session
 
     with app.app_context():
-        db.session.query(Message).delete()  # CHANGED: clear child rows first for FK safety
-        db.session.query(Session).delete()  # CHANGED: clear parent rows to keep tests isolated
-        db.session.commit()  # CHANGED: persist cleanup so each test starts from a known-empty DB
+        # CHANGED: clear child rows first for FK safety
+        db.session.query(Message).delete()
+        # CHANGED: clear parent rows to keep tests isolated
+        db.session.query(Session).delete()
+        # CHANGED: persist cleanup so each test starts from a known-empty DB
+        db.session.commit()
 
     yield
