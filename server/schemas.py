@@ -3,20 +3,21 @@
 # Notes:
 # - Keep DTOs close to the route surface; easy to re-use in docs/tests.
 
+# CHANGED: removed inline import comments + normalized formatting so Ruff I001/Black/isort pass
 from __future__ import annotations
 
-from datetime import datetime  # <-- ADDED: for session DTOs
-from typing import List, Literal, Optional  # <-- CHANGED: add List for details
+from datetime import datetime
+from typing import List, Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator  # <-- CHANGED: consolidate imports to satisfy ruff I001
+from pydantic import BaseModel, Field, field_validator
 
 
 class ChatRequest(BaseModel):
     message: str = Field(
         ..., min_length=1, max_length=4000
-    )  # inline-change: guardrails
+    )  # CHANGED: Black formatting only (no behavior change)
     model: Literal["gpt-3.5-turbo", "gpt-4"] = (
-        "gpt-3.5-turbo"  # inline-change: enum constraint
+        "gpt-3.5-turbo"  # CHANGED: Black formatting only (no behavior change)
     )
     session_id: Optional[str] = None  # <-- ADDED: optional session support
 
@@ -30,7 +31,7 @@ class ErrorResponse(BaseModel):
     code: int
     request_id: Optional[str] = None
     details: Optional[List[dict]] = (
-        None  # <-- CHANGED: optional validation details for 400s
+        None  # CHANGED: Black formatting only (no behavior change)
     )
 
 
@@ -38,7 +39,7 @@ class ErrorResponse(BaseModel):
 class CreateSessionRequest(BaseModel):
     title: Optional[str] = Field(
         default=None, max_length=200
-    )  # optional title with a sensible max
+    )  # CHANGED: Black formatting only (no behavior change)
 
     @field_validator(
         "title", mode="before"
@@ -60,7 +61,7 @@ class CreateSessionRequest(BaseModel):
 class UpdateSessionRequest(BaseModel):  # <-- ADDED: DTO for PATCH /api/sessions/:id
     title: str = Field(
         ..., min_length=1, max_length=200
-    )  # required; enforce length bounds
+    )  # CHANGED: Black formatting only (no behavior change)
 
     @field_validator(
         "title", mode="before"
@@ -85,7 +86,7 @@ class AppendMessageRequest(BaseModel):
     content: str = Field(..., min_length=1)  # ensure non-empty content
     tokens: Optional[int] = Field(
         default=None, ge=0
-    )  # optional non-negative token count
+    )  # CHANGED: Black formatting only (no behavior change)
 
 
 class SessionSummary(BaseModel):
