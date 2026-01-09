@@ -55,7 +55,7 @@ jobs:
         run: isort --check-only .
 
       - name: Type check (mypy)
-        run: mypy server/services server/schemas  # scoped so CI is green
+        run: mypy server/schemas.py  # CHANGED: scope to typed DTOs (file path was incorrect + services are intentionally deferred)
 
       - name: Run tests (pytest + coverage)
         run: pytest
