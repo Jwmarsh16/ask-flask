@@ -6,7 +6,7 @@ import os
 import pathlib
 import sys
 
-import pytest  # CHANGED: add pytest fixture/hooks to init + reset DB schema in clean CI runners
+import pytest 
 
 # CHANGED: signals "test mode" early enough to affect app import-time init
 os.environ.setdefault("ASKFLASK_TESTING", "1")
