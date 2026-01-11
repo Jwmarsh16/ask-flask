@@ -1,12 +1,12 @@
 // client/src/components/ChatBot.jsx
-import { useEffect, useRef, useState, useMemo } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import '../ChatBot.css'
 
 // ✨ Markdown rendering + GFM + Prism highlighting
-import ReactMarkdown from 'react-markdown'                 // render Markdown
-import remarkGfm from 'remark-gfm'                         // GitHub-flavored Markdown
-import Prism from 'prismjs'                                // syntax highlighter
-import 'prismjs/components/prism-javascript'               // common languages
+import ReactMarkdown from 'react-markdown' // render Markdown
+import remarkGfm from 'remark-gfm' // GitHub-flavored Markdown
+import Prism from 'prismjs' // syntax highlighter
+import 'prismjs/components/prism-javascript' // common languages
 import 'prismjs/components/prism-typescript'
 import 'prismjs/components/prism-jsx'
 import 'prismjs/components/prism-tsx'
@@ -14,35 +14,33 @@ import 'prismjs/components/prism-python'
 import 'prismjs/components/prism-json'
 import 'prismjs/components/prism-markup'
 // import 'prismjs/themes/prism.css'                        // ❌ OLD: light theme (replaced)
-import 'prismjs/themes/prism-tomorrow.css'                 // ✅ CHANGED: darker theme to match dark UI
+import 'prismjs/themes/prism-tomorrow.css' // ✅ CHANGED: darker theme to match dark UI
 
 // 👇 Robust API base resolution:
 // - DEV: use VITE_API_BASE_URL or default to http://localhost:5555
 // - PROD: use VITE_API_BASE_URL only if it's NOT localhost; otherwise same-origin ('')
-const rawEnvBase = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')  // trim trailing slashes
+const rawEnvBase = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '') // trim trailing slashes
 const isDev = import.meta.env.DEV
 const isLocalhost = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(rawEnvBase)
-const API_BASE = isDev ? (rawEnvBase || 'http://localhost:5555') : (rawEnvBase && !isLocalhost ? rawEnvBase : '')  // unchanged
+const API_BASE = isDev ? rawEnvBase || 'http://localhost:5555' : rawEnvBase && !isLocalhost ? rawEnvBase : '' // unchanged
 
-export default function ChatBot({ sessionId, onSelectSession }) { // <-- CHANGED: accept onSelectSession
+export default function ChatBot({ sessionId, onSelectSession }) {
   const [input, setInput] = useState('')
   const [messages, setMessages] = useState(() => {
     const saved = localStorage.getItem('askFlaskMessages')
     return saved ? JSON.parse(saved) : []
   })
   const [isTyping, setIsTyping] = useState(false)
-  const [model, setModel] = useState(
-    () => localStorage.getItem('askFlaskModel') || 'gpt-3.5-turbo'
-  )
-  const [streamEnabled, setStreamEnabled] = useState(() => {            // streaming toggle (default on)
+  const [model, setModel] = useState(() => localStorage.getItem('askFlaskModel') || 'gpt-3.5-turbo')
+  const [streamEnabled, setStreamEnabled] = useState(() => {
     const saved = localStorage.getItem('askFlaskStream')
     return saved ? saved === 'true' : true
   })
-  const [rateRemaining, setRateRemaining] = useState(null)              // track X-RateLimit-Remaining (JSON + SSE)
-  const [newSessionLoading, setNewSessionLoading] = useState(false)     // <-- ADDED: disable Clear while creating
+  const [rateRemaining, setRateRemaining] = useState(null)
+  const [newSessionLoading, setNewSessionLoading] = useState(false)
 
   const chatEndRef = useRef(null)
-  const chatWindowRef = useRef(null)                                    // scope Prism highlighting
+  const chatWindowRef = useRef(null)
 
   // Load server history whenever sessionId changes (kept)
   useEffect(() => {
@@ -51,13 +49,12 @@ export default function ChatBot({ sessionId, onSelectSession }) { // <-- CHANGED
     ;(async () => {
       try {
         const res = await fetch(`${API_BASE}/api/sessions/${sessionId}`, {
-          credentials: 'same-origin', // <-- ADDED: include cookies if we add auth later
+          credentials: 'same-origin',
         })
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         const data = await res.json()
         const serverMsgs = Array.isArray(data?.messages) ? data.messages : []
-        // Map server message shape to UI shape (role/content/timestamp)
-        const mapped = serverMsgs.map(m => ({
+        const mapped = serverMsgs.map((m) => ({
           role: m.role === 'assistant' ? 'assistant' : 'user',
           content: m.content || '',
           timestamp: (() => {
@@ -75,14 +72,20 @@ export default function ChatBot({ sessionId, onSelectSession }) { // <-- CHANGED
         if (!cancelled) setMessages([])
       }
     })()
-    return () => { cancelled = true }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => {
+      cancelled = true
+    }
   }, [sessionId])
 
   // Persist UI transcript + re-highlight code blocks (kept)
   useEffect(() => {
     localStorage.setItem('askFlaskMessages', JSON.stringify(messages))
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+
+    const el = chatEndRef.current
+    if (el && typeof el.scrollIntoView === 'function') {
+      el.scrollIntoView({ behavior: 'smooth' }) // ✅ CHANGED: guard for jsdom (no scrollIntoView)
+    }
+
     if (chatWindowRef.current) Prism.highlightAllUnder(chatWindowRef.current)
   }, [messages])
 
@@ -91,7 +94,7 @@ export default function ChatBot({ sessionId, onSelectSession }) { // <-- CHANGED
   }, [model])
 
   useEffect(() => {
-    localStorage.setItem('askFlaskStream', String(streamEnabled))       // persist toggle
+    localStorage.setItem('askFlaskStream', String(streamEnabled))
   }, [streamEnabled])
 
   // Unified ErrorResponse -> friendly text (kept)
@@ -100,11 +103,16 @@ export default function ChatBot({ sessionId, onSelectSession }) { // <-- CHANGED
     const code = err.code ?? 500
     const requestId = err.request_id ? ` (Ref: ${err.request_id})` : ''
     switch (code) {
-      case 400: return `Please check your input.${requestId}`
-      case 413: return `Message is too long (max 4000 chars).${requestId}`
-      case 429: return `Too many requests. Try again soon.${requestId}`
-      case 503: return `Service temporarily unavailable. Please retry.${requestId}`
-      default: return `Unexpected error.${requestId}`
+      case 400:
+        return `Please check your input.${requestId}`
+      case 413:
+        return `Message is too long (max 4000 chars).${requestId}`
+      case 429:
+        return `Too many requests. Try again soon.${requestId}`
+      case 503:
+        return `Service temporarily unavailable. Please retry.${requestId}`
+      default:
+        return `Unexpected error.${requestId}`
     }
   }
 
@@ -119,7 +127,8 @@ export default function ChatBot({ sessionId, onSelectSession }) { // <-- CHANGED
     setInput('')
     setIsTyping(true)
 
-    if (streamEnabled && 'ReadableStream' in window) {
+    const hasStreams = typeof globalThis.ReadableStream !== 'undefined' // ✅ CHANGED: works in browser + jsdom/node
+    if (streamEnabled && hasStreams) {
       await sendMessageStreaming(trimmed, timestamp)
     } else {
       await sendMessageNonStreaming(trimmed, timestamp)
@@ -129,18 +138,17 @@ export default function ChatBot({ sessionId, onSelectSession }) { // <-- CHANGED
   const sendMessageNonStreaming = async (trimmed, ts) => {
     try {
       const payload = {
-        message: trimmed,                   // send raw user message (server builds context)
+        message: trimmed,
         model,
-        session_id: sessionId || undefined, // persist to active session
+        session_id: sessionId || undefined,
       }
       const res = await fetch(`${API_BASE}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',        // <-- ADDED: align with other calls
+        credentials: 'same-origin',
         body: JSON.stringify(payload),
       })
 
-      // Rate limit header (JSON path)
       const rl = res.headers.get('X-RateLimit-Remaining')
       if (rl !== null) setRateRemaining(rl)
 
@@ -150,7 +158,7 @@ export default function ChatBot({ sessionId, onSelectSession }) { // <-- CHANGED
       if (res.ok && typeof data?.reply === 'string') {
         botContent = data.reply
       } else {
-        botContent = `Error: ${formatError(data)}`
+        botContent = `Error: ${formatError({ ...(data || {}), code: res.status })}` // ✅ CHANGED: include HTTP status
       }
 
       const botMessage = {
@@ -159,7 +167,7 @@ export default function ChatBot({ sessionId, onSelectSession }) { // <-- CHANGED
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       }
       setMessages((prev) => [...prev, botMessage])
-    } catch (_error) {
+    } catch {
       setMessages((prev) => [
         ...prev,
         { role: 'assistant', content: 'Network error. Please try again.', timestamp: ts },
@@ -170,33 +178,27 @@ export default function ChatBot({ sessionId, onSelectSession }) { // <-- CHANGED
   }
 
   const sendMessageStreaming = async (trimmed, ts) => {
-    // Insert a placeholder assistant message to progressively append tokens
-    const startIndex = messages.length + 1 // index after pushing the user message above
-    setMessages((prev) => [
-      ...prev,
-      { role: 'assistant', content: '', timestamp: ts }
-    ])
+    const startIndex = messages.length + 1
+    setMessages((prev) => [...prev, { role: 'assistant', content: '', timestamp: ts }])
 
     try {
       const payload = {
-        message: trimmed,                   // send raw user message (server builds context)
+        message: trimmed,
         model,
-        session_id: sessionId || undefined, // persist to active session
+        session_id: sessionId || undefined,
       }
       const res = await fetch(`${API_BASE}/api/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',        // <-- ADDED: align with other calls
+        credentials: 'same-origin',
         body: JSON.stringify(payload),
       })
 
-      // Rate limit header (SSE path)
       const rl = res.headers.get('X-RateLimit-Remaining')
       if (rl !== null) setRateRemaining(rl)
 
       if (!res.ok || !res.body) {
-        // If streaming not available or failed, gracefully fall back
-        setMessages((prev) => prev.slice(0, -1)) // <-- CHANGED: remove placeholder before fallback to avoid duplicate bot msgs
+        setMessages((prev) => prev.slice(0, -1))
         return await sendMessageNonStreaming(trimmed, ts)
       }
 
@@ -204,14 +206,13 @@ export default function ChatBot({ sessionId, onSelectSession }) { // <-- CHANGED
       const decoder = new TextDecoder('utf-8')
       let buffer = ''
 
-      // Read chunks and parse SSE "data: ..." frames separated by \n\n
       while (true) {
         const { value, done } = await reader.read()
         if (done) break
         buffer += decoder.decode(value, { stream: true })
 
         const parts = buffer.split('\n\n')
-        buffer = parts.pop() || '' // keep incomplete frame in buffer
+        buffer = parts.pop() || ''
 
         for (const part of parts) {
           const line = part.trim()
@@ -222,19 +223,17 @@ export default function ChatBot({ sessionId, onSelectSession }) { // <-- CHANGED
           try {
             const evt = JSON.parse(jsonText)
             if (evt.token) {
-              // Append token to the last assistant message
               setMessages((prev) => {
                 const next = [...prev]
-                const idx = startIndex // index of placeholder assistant msg
+                const idx = startIndex
                 next[idx] = {
                   ...next[idx],
-                  content: (next[idx].content || '') + evt.token
+                  content: (next[idx].content || '') + evt.token,
                 }
                 return next
               })
             }
             if (evt.done) {
-              // finalize timestamp for the assistant message
               setMessages((prev) => {
                 const next = [...prev]
                 const idx = startIndex
@@ -246,62 +245,56 @@ export default function ChatBot({ sessionId, onSelectSession }) { // <-- CHANGED
               })
             }
             if (evt.error) {
-              // Friendly message using unified SSE error fields
               setMessages((prev) => {
                 const next = [...prev]
                 const idx = startIndex
                 next[idx] = {
                   ...next[idx],
-                  content: `Error: ${formatError(evt)}`
+                  content: `Error: ${formatError(evt)}`,
                 }
                 return next
               })
             }
           } catch {
-            // If parsing fails, append raw text
             setMessages((prev) => {
               const next = [...prev]
               const idx = startIndex
               next[idx] = {
                 ...next[idx],
-                content: (next[idx].content || '') + jsonText
+                content: (next[idx].content || '') + jsonText,
               }
               return next
             })
           }
         }
       }
-    } catch (_err) {
-      // Network or stream failure → fall back to non-stream
-      setMessages((prev) => prev.slice(0, -1)) // <-- CHANGED: remove placeholder before fallback
+    } catch {
+      setMessages((prev) => prev.slice(0, -1))
       await sendMessageNonStreaming(trimmed, ts)
     } finally {
       setIsTyping(false)
     }
   }
 
-  // 🔹 CHANGED: Create a brand-new session on the server and select it
   const handleClearChat = async () => {
     if (newSessionLoading) return
-    setNewSessionLoading(true) // <-- ADDED: prevent double-click
+    setNewSessionLoading(true)
     try {
       const res = await fetch(`${API_BASE}/api/sessions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin', // <-- ADDED: align with other calls
-        body: JSON.stringify({}),   // title optional; let server default it
+        credentials: 'same-origin',
+        body: JSON.stringify({}),
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json()
       const id = data?.id
       if (!id) throw new Error('Missing session id')
 
-      // Clear local transcript and switch to the new session
-      setMessages([]) // <-- ADDED: clear UI
-      localStorage.removeItem('askFlaskMessages') // <-- ADDED: clear persisted UI transcript
-      onSelectSession?.(id) // <-- ADDED: inform parent to persist + update sidebar
-    } catch (_e) {
-      // Non-fatal: surface a friendly inline error
+      setMessages([])
+      localStorage.removeItem('askFlaskMessages')
+      onSelectSession?.(id)
+    } catch {
       setMessages((prev) => [
         ...prev,
         {
@@ -318,19 +311,21 @@ export default function ChatBot({ sessionId, onSelectSession }) { // <-- CHANGED
   // Memoized Markdown components so copy buttons don’t re-create unnecessarily
   const markdownComponents = useMemo(() => {
     function CodeBlock({ inline, className, children, ...props }) {
-      if (inline) return <code className={className} {...props}>{children}</code>
+      if (inline)
+        return (
+          <code className={className} {...props}>
+            {children}
+          </code>
+        )
 
       const rawCode = String(children || '')
 
-      const onCopy = async () => {
+      const onCopy = async (e) => {
+        const btn = e.currentTarget // ✅ CHANGED: capture before await (event can be cleared/preserved differently in tests)
         try {
           await navigator.clipboard.writeText(rawCode)
-          // Quick visual feedback by toggling a data attribute (CSS handles effect)
-          const btn = document.activeElement
-          if (btn) {
-            btn.setAttribute('data-copied', 'true')
-            setTimeout(() => btn.setAttribute('data-copied', 'false'), 1200)
-          }
+          btn.setAttribute('data-copied', 'true')
+          setTimeout(() => btn.setAttribute('data-copied', 'false'), 1200)
         } catch {
           // clipboard may be blocked; no-op
         }
@@ -355,78 +350,78 @@ export default function ChatBot({ sessionId, onSelectSession }) { // <-- CHANGED
   }, [])
 
   return (
-    <div className="chatbot-container">
-      <div className="chat-header">
-        <h2>Ask-Flask 🤖</h2>
-        <div className="chat-controls">
-          {/* small pill showing remaining requests in current window */}
-          <div className="rate-pill" title="Requests remaining this window">
-            Rate limit: {rateRemaining ?? '—'} left
+    <React.Fragment>
+      {/* ✅ CHANGED: reference React to satisfy classic JSX runtime in CI/test transforms */}
+      <div className="chatbot-container">
+        <div className="chat-header">
+          <h2>Ask-Flask 🤖</h2>
+          <div className="chat-controls">
+            <div className="rate-pill" title="Requests remaining this window">
+              Rate limit: {rateRemaining ?? '—'} left
+            </div>
+            <label className="stream-toggle">
+              <input
+                type="checkbox"
+                checked={streamEnabled}
+                onChange={(e) => setStreamEnabled(e.target.checked)}
+              />
+              Stream
+            </label>
+            <select value={model} onChange={(e) => setModel(e.target.value)} aria-label="Model">
+              <option value="gpt-3.5-turbo">GPT-3.5</option>
+              <option value="gpt-4">GPT-4</option>
+            </select>
+            <button
+              type="button"
+              onClick={handleClearChat}
+              disabled={newSessionLoading}
+              title="Create a brand-new session and clear the chat"
+            >
+              {newSessionLoading ? 'Creating…' : 'Clear Chat'}
+            </button>
           </div>
-          <label className="stream-toggle">
-            <input
-              type="checkbox"
-              checked={streamEnabled}
-              onChange={(e) => setStreamEnabled(e.target.checked)}
-            />
-            Stream
-          </label>
-          <select value={model} onChange={(e) => setModel(e.target.value)} aria-label="Model">
-            <option value="gpt-3.5-turbo">GPT-3.5</option>
-            <option value="gpt-4">GPT-4</option>
-          </select>
-          <button
-            type="button"                          // <-- ADDED: explicit type
-            onClick={handleClearChat}              // <-- CHANGED: create + select new session
-            disabled={newSessionLoading}           // <-- ADDED: disable during request
-            title="Create a brand-new session and clear the chat"
-          >
-            {newSessionLoading ? 'Creating…' : 'Clear Chat'}
+        </div>
+
+        <div className="chat-window" ref={chatWindowRef}>
+          {messages.map((msg, idx) => (
+            <div key={idx} className={`message ${msg.role === 'user' ? 'user' : 'bot'}`}>
+              <div className="message-content">
+                {msg.role === 'assistant' ? (
+                  <ReactMarkdown className="markdown" remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                    {msg.content || ''}
+                  </ReactMarkdown>
+                ) : (
+                  <span>{msg.content}</span>
+                )}
+              </div>
+              <div className="timestamp">{msg.timestamp}</div>
+            </div>
+          ))}
+
+          {isTyping && (
+            <div className="message bot typing-indicator" aria-live="polite" aria-label="Assistant is typing">
+              <span className="dot"></span>
+              <span className="dot"></span>
+              <span className="dot"></span>
+            </div>
+          )}
+
+          <div ref={chatEndRef} />
+        </div>
+
+        <div className="input-container">
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Type a message..."
+            onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
+            aria-label="Message input"
+          />
+          <button type="button" onClick={sendMessage} aria-label="Send message">
+            Send
           </button>
         </div>
       </div>
-
-      <div className="chat-window" ref={chatWindowRef}>
-        {messages.map((msg, idx) => (
-          <div key={idx} className={`message ${msg.role === 'user' ? 'user' : 'bot'}`}>
-            <div className="message-content">
-              {msg.role === 'assistant' ? (
-                <ReactMarkdown
-                  className="markdown"
-                  remarkPlugins={[remarkGfm]}
-                  components={markdownComponents}
-                >
-                  {msg.content || ''}
-                </ReactMarkdown>
-              ) : (
-                <span>{msg.content}</span>
-              )}
-            </div>
-            <div className="timestamp">{msg.timestamp}</div>
-          </div>
-        ))}
-
-        {isTyping && (
-          <div className="message bot typing-indicator" aria-live="polite" aria-label="Assistant is typing">
-            <span className="dot"></span>
-            <span className="dot"></span>
-            <span className="dot"></span>
-          </div>
-        )}
-
-        <div ref={chatEndRef} />
-      </div>
-
-      <div className="input-container">
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Type a message..."
-          onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
-          aria-label="Message input"
-        />
-        <button type="button" onClick={sendMessage} aria-label="Send message">Send</button> {/* <-- ADDED: explicit type + aria */}
-      </div>
-    </div>
+    </React.Fragment>
   )
 }

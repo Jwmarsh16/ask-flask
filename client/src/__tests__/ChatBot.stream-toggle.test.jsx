@@ -1,6 +1,5 @@
 // client/src/__tests__/ChatBot.stream-toggle.test.jsx
-// ✅ NEW: ensures the Stream toggle persists across reloads via localStorage.
-
+import React from 'react'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { vi } from 'vitest'
@@ -12,22 +11,21 @@ beforeEach(() => {
 })
 
 test('stream toggle persists in localStorage and across rerenders', async () => {
-  render(<ChatBot />)
+  const user = userEvent.setup()
 
-  // Default is true (checked)
-  const toggle = screen.getByLabelText(/stream/i)
-  expect(toggle).toBeChecked()
+  const first = render(React.createElement(ChatBot))
 
-  // Turn OFF streaming
-  await userEvent.click(toggle)
-  expect(toggle).not.toBeChecked()
+  const toggle1 = screen.getByLabelText(/stream/i)
+  expect(toggle1).toBeChecked()
+
+  await user.click(toggle1)
+  expect(toggle1).not.toBeChecked()
   expect(localStorage.getItem('askFlaskStream')).toBe('false')
 
-  // Re-render fresh instance (simulate reload)
-  localStorage.setItem('askFlaskStream', 'false')
-  render(<ChatBot />)
+  first.unmount()
 
-  // Should remain unchecked based on stored value
+  render(React.createElement(ChatBot))
+
   const toggle2 = screen.getByLabelText(/stream/i)
   expect(toggle2).not.toBeChecked()
 })
