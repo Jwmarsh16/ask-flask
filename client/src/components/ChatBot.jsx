@@ -24,6 +24,10 @@ const isDev = import.meta.env.DEV
 const isLocalhost = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(rawEnvBase)
 const API_BASE = isDev ? rawEnvBase || 'http://localhost:5555' : rawEnvBase && !isLocalhost ? rawEnvBase : '' // unchanged
 
+// CHANGED: keep supported picker choices and saved-preference validation together.
+const CHAT_MODELS = [{ id: 'gpt-6-luna', label: 'GPT-6 Luna' }]
+const DEFAULT_CHAT_MODEL = CHAT_MODELS[0].id // CHANGED: use the low-cost choice by default.
+
 export default function ChatBot({ sessionId, onSelectSession }) {
   const [input, setInput] = useState('')
   const [messages, setMessages] = useState(() => {
@@ -31,7 +35,12 @@ export default function ChatBot({ sessionId, onSelectSession }) {
     return saved ? JSON.parse(saved) : []
   })
   const [isTyping, setIsTyping] = useState(false)
-  const [model, setModel] = useState(() => localStorage.getItem('askFlaskModel') || 'gpt-3.5-turbo')
+  const [model, setModel] = useState(() => {
+    const saved = localStorage.getItem('askFlaskModel')
+    return CHAT_MODELS.some(({ id }) => id === saved)
+      ? saved
+      : DEFAULT_CHAT_MODEL // CHANGED: replace retired or invalid saved choices.
+  })
   const [streamEnabled, setStreamEnabled] = useState(() => {
     const saved = localStorage.getItem('askFlaskStream')
     return saved ? saved === 'true' : true
@@ -368,8 +377,10 @@ export default function ChatBot({ sessionId, onSelectSession }) {
               Stream
             </label>
             <select value={model} onChange={(e) => setModel(e.target.value)} aria-label="Model">
-              <option value="gpt-3.5-turbo">GPT-3.5</option>
-              <option value="gpt-4">GPT-4</option>
+              {/* CHANGED: offer only the supported models validated above. */}
+              {CHAT_MODELS.map(({ id, label }) => (
+                <option key={id} value={id}>{label}</option>
+              ))}
             </select>
             <button
               type="button"
