@@ -11,15 +11,26 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
+DEFAULT_CHAT_MODEL: Literal["gpt-6-luna"] = "gpt-6-luna"  # CHANGED: supported default.
+LEGACY_CHAT_MODELS = (
+    "gpt-3.5-turbo",
+    "gpt-4",
+)  # CHANGED: retired IDs accepted as aliases.
+
 
 class ChatRequest(BaseModel):
     message: str = Field(
         ..., min_length=1, max_length=4000
     )  # CHANGED: Black formatting only (no behavior change)
-    model: Literal["gpt-3.5-turbo", "gpt-4"] = (
-        "gpt-3.5-turbo"  # CHANGED: Black formatting only (no behavior change)
+    model: Literal["gpt-6-luna"] = (
+        DEFAULT_CHAT_MODEL  # CHANGED: allow the supported model.
     )
     session_id: Optional[str] = None  # <-- ADDED: optional session support
+
+    @field_validator("model", mode="before")  # CHANGED: migrate retired request IDs.
+    @classmethod
+    def _migrate_legacy_model(cls, value: object) -> object:
+        return DEFAULT_CHAT_MODEL if value in LEGACY_CHAT_MODELS else value
 
 
 class ChatResponse(BaseModel):
@@ -69,7 +80,7 @@ class UpdateSessionRequest(BaseModel):  # <-- ADDED: DTO for PATCH /api/sessions
     @classmethod
     def _strip_and_require_nonempty(cls, v: str) -> str:
         """
-        Normalize & validate: trim and ensure non-empty after trimming.         # <-- CHANGED
+        Normalize & validate: trim whitespace; require non-empty after trimming.         # <-- CHANGED
         """
         if v is None:
             raise ValueError("Title cannot be empty or whitespace.")

@@ -32,6 +32,8 @@ if __package__ in (None, ""):  # top-level launch: gunicorn --chdir server app:a
     from ratelimit import init_rate_limiter
     from routes.rag import rag_bp
     from schemas import (
+        DEFAULT_CHAT_MODEL,
+        LEGACY_CHAT_MODELS,
         AppendMessageRequest,
         ChatRequest,
         ChatResponse,
@@ -70,6 +72,8 @@ else:  # package launch: gunicorn server.app:app
     from .ratelimit import init_rate_limiter
     from .routes.rag import rag_bp
     from .schemas import (
+        DEFAULT_CHAT_MODEL,
+        LEGACY_CHAT_MODELS,
         AppendMessageRequest,
         ChatRequest,
         ChatResponse,
@@ -223,7 +227,14 @@ def _memory_enabled() -> bool:
 
 
 def _memory_model(default_chat_model: str) -> str:
-    return os.getenv("CHAT_MEMORY_MODEL", "gpt-3.5-turbo") or default_chat_model
+    configured_model = (
+        os.getenv("CHAT_MEMORY_MODEL", DEFAULT_CHAT_MODEL) or default_chat_model
+    )  # CHANGED: use a supported default while preserving custom overrides.
+    return (
+        DEFAULT_CHAT_MODEL
+        if configured_model in LEGACY_CHAT_MODELS
+        else configured_model
+    )  # CHANGED: migrate retired IDs in existing environment settings.
 
 
 def _memory_max_chars() -> int:
@@ -364,7 +375,7 @@ def chat():
         return jsonify(_error_payload("Missing JSON body or 'message' field", 400)), 400
 
     incoming_message = (data.get("message") or "").strip()
-    model = data.get("model", "gpt-3.5-turbo")
+    model = data.get("model", DEFAULT_CHAT_MODEL)  # CHANGED: use the shared default.
 
     if len(incoming_message) > 4000:
         raise RequestEntityTooLarge(description="Message too large")
@@ -457,7 +468,7 @@ def chat_stream():
         return jsonify(_error_payload("Missing JSON body or 'message' field", 400)), 400
 
     incoming_message = (data.get("message") or "").strip()
-    model = data.get("model", "gpt-3.5-turbo")
+    model = data.get("model", DEFAULT_CHAT_MODEL)  # CHANGED: use the shared default.
 
     if len(incoming_message) > 4000:
         raise RequestEntityTooLarge(description="Message too large")
